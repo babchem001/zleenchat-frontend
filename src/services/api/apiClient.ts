@@ -1,7 +1,7 @@
 import axios from "axios";
 import { getToken } from "../storage/tokenService";
 // export const API_BASE_URL = "http://172.20.10.12:8000";
-export const API_BASE_URL = "https://zleenchat-backend.onrender.com";
+export const API_BASE_URL = "https://api.zleenchat.com";;
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,

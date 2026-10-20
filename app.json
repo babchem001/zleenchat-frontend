@@ -16,7 +16,6 @@
       }
     },
     "android": {
-      // "usesClearTextTraffic": true,
       "permissions": [
         "INTERNET",
         "READ_MEDIA_IMAGES",
@@ -67,6 +66,12 @@
       "eas": {
         "projectId": "ce17fcee-9f30-499b-b041-65607eec10fe"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/ce17fcee-9f30-499b-b041-65607eec10fe"
     }
   }
 }

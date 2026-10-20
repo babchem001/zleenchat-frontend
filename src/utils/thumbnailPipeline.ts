@@ -5,6 +5,7 @@ import { decryptChunk } from "./chunkDecryption";
 import { secureDeleteFile } from "../services/chat/secureDelete";
 import { useMediaCacheStore } from "@/src/store/chat/mediaCacheStore";
 import { API_BASE_URL } from "@/src/services/api/apiClient";
+import { getToken } from "@/src/services/storage/tokenService";
 
 type EncryptedThumbnailChunk = {
   encryptedChunk?: string;
@@ -21,8 +22,7 @@ const isEncryptedThumbnailChunk = (
 
   const chunk = value as EncryptedThumbnailChunk;
   return (
-    typeof chunk.encryptedChunk === "string" ||
-    typeof chunk.chunk === "string"
+    typeof chunk.encryptedChunk === "string" || typeof chunk.chunk === "string"
   );
 };
 
@@ -94,14 +94,33 @@ export const decryptRemoteThumbnail = async ({
   }
 
   // ================= DOWNLOAD =================
-
   const downloadPath = `${Paths.cache.uri}encrypted-thumbnail-${Date.now()}.txt`;
 
   const remoteUri = thumbnailUrl.startsWith("http")
     ? thumbnailUrl
     : `${API_BASE_URL}${thumbnailUrl}`;
 
-  await FileSystem.downloadAsync(remoteUri, downloadPath);
+  const token = await getToken();
+
+  if (!token) {
+    throw new Error("Authentication token not found for thumbnail download");
+  }
+
+  const downloadResult = await FileSystem.downloadAsync(
+    remoteUri,
+    downloadPath,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  if (downloadResult.status !== 200) {
+    throw new Error(
+      `Thumbnail download failed with status ${downloadResult.status}`,
+    );
+  }
 
   let encryptedContent = await FileSystem.readAsStringAsync(downloadPath);
 

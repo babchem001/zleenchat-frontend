@@ -6,6 +6,7 @@ import { secureDeleteFile } from "../services/chat/secureDelete";
 import { useMediaCacheStore } from "../store/chat/mediaCacheStore";
 
 import { API_BASE_URL } from "@/src/services/api/apiClient";
+import { getToken } from "@/src/services/storage/tokenService";
 
 type DecryptRemoteMediaParams = {
   mediaUrl: string;
@@ -60,7 +61,32 @@ export const decryptRemoteMedia = async ({
 
   try {
     // ================= DOWNLOAD =================
-    await FileSystem.downloadAsync(`${API_BASE_URL}${mediaUrl}`, downloadPath);
+    const token = await getToken();
+
+    if (!token) {
+      throw new Error("Authentication token not found for media download");
+    }
+
+    const remoteUri = mediaUrl.startsWith("http")
+      ? mediaUrl
+      : `${API_BASE_URL}${mediaUrl}`;
+
+    const downloadResult = await FileSystem.downloadAsync(
+      remoteUri,
+      downloadPath,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    );
+
+    if (downloadResult.status !== 200) {
+      throw new Error(
+        `Media download failed with status ${downloadResult.status}`,
+      );
+    }
+
     encryptedContent = await FileSystem.readAsStringAsync(downloadPath);
 
     // ================= AES KEY =================
