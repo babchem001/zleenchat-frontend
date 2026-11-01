@@ -19,19 +19,7 @@ export const uploadMessageFile = async ({
   onProgress,
   onChunkProgress,
 }: UploadOptions) => {
-  // ================= CREATE SESSION =================
-
-  const startUploadResponse = await apiClient.post("/messages/upload/start", {
-    clientId: file.clientId,
-    fileName: file.name,
-    mimeType: file.mimeType,
-    fileSize: file.size,
-  });
-
-  const { uploadSessionId, uploadedChunks } = startUploadResponse.data;
-
-  // ================= FILE INFO =================
-
+  //FILE INFO: Read the local source before starting the upload session so the backend knows exactly how many chunks must arrive.
   const fileInfo = await FileSystem.getInfoAsync(file.uri);
 
   if (!fileInfo.exists) {
@@ -42,6 +30,17 @@ export const uploadMessageFile = async ({
   });
   const totalChunks = Math.ceil(base64File.length / CHUNK_SIZE);
 
+  // ================= CREATE SESSION =================
+
+  const startUploadResponse = await apiClient.post("/messages/upload/start", {
+    clientId: file.clientId,
+    fileName: file.name,
+    mimeType: file.mimeType,
+    fileSize: file.size,
+    totalChunks,
+  });
+
+  const { uploadSessionId, uploadedChunks } = startUploadResponse.data;
   let uploadedBytes = 0;
 
   //Generate aes key
@@ -97,22 +96,23 @@ export const uploadMessageFile = async ({
     onProgress?.(overallProgress);
     onChunkProgress?.(chunkIndex + 1, totalChunks);
   }
-  // ================= FINALIZE =================
 
+  // FINALIZE
   const finalizeResponse = await apiClient.post("/messages/upload/complete", {
     uploadSessionId,
   });
+
   base64File = ""; // Clear from memory
-  await deleteFileIfExists(file.uri);
 
   return {
     ...finalizeResponse.data,
+    // Keep this so the worker knows which server-side upload must be finalized after the database write succeeds.
+    uploadSessionId,
     encryptedMediaKey: encryptedKeyData.encryptedKey,
     mediaKeyIV: encryptedKeyData.keyIV,
-    // mediaKeyAuthTag: encryptedKeyData.keyAuthTag,
     mediaIV: null,
-    // mediaAuthTag: null,
     isMediaEncrypted: true,
+    localSourceUri: file.uri,
   };
 };
 
@@ -168,12 +168,28 @@ export const uploadThumbnail = async (thumbnailUri: string) => {
     });
   }
 
-  // ================= COMPLETE =================
-
+  // COMPLETE
   const completeResponse = await apiClient.post("/messages/upload/complete", {
     uploadSessionId,
   });
+
   base64File = "";
-  await deleteFileIfExists(thumbnailUri);
-  return completeResponse.data;
+  return {
+    ...completeResponse.data,
+    uploadSessionId,
+    // Preserve the local source until DB success.
+    localSourceUri: thumbnailUri,
+  };
+};
+
+export const finalizeChunkUpload = async (uploadSessionId: string) => {
+  if (!uploadSessionId) {
+    throw new Error("Upload session ID is required for finalization");
+  }
+
+  const response = await apiClient.post("/messages/upload/finalize", {
+    uploadSessionId,
+  });
+
+  return response.data;
 };

@@ -1,19 +1,35 @@
 import { useEffect, useState } from "react";
 
-import { API_BASE_URL } from "@/src/services/api/apiClient";
+import { getAuthenticatedMediaSource } from "@/src/utils/mediaReference";
 import { SharedMediaItem } from "@/src/services/chat/sharedMediaService";
 import { decryptRemoteMedia } from "@/src/utils/mediaPipeline";
 import { useMediaCacheStore } from "@/src/store/chat/mediaCacheStore";
 
+type ImageSource = {
+  uri: string;
+  headers?: Record<string, string>;
+};
+
 export default function useDecryptedImage(item: SharedMediaItem | null) {
-  const [uri, setUri] = useState<string | null>(null);
+  /*
+   * ============================================================
+   * PHASE F — STEP 4
+   *
+   * Shared images may be private remote media and therefore need
+   * both the URI and the Authorization header.
+   *
+   * Decrypted/local media remains a plain local URI.
+   * ============================================================
+   */
+
+  const [source, setSource] = useState<ImageSource | null>(null);
   const [loading, setLoading] = useState(false);
 
   const getCachedMedia = useMediaCacheStore((state) => state.getCachedMedia);
 
   useEffect(() => {
     if (!item || !item.mediaUrl) {
-      setUri(null);
+      setSource(null);
       setLoading(false);
       return;
     }
@@ -25,30 +41,40 @@ export default function useDecryptedImage(item: SharedMediaItem | null) {
     const load = async () => {
       try {
         setLoading(true);
+        setSource(null);
 
-        // ---------- NOT ENCRYPTED ----------
+        // NOT ENCRYPTED
         if (!item.isMediaEncrypted) {
+          const authenticatedSource =
+            await getAuthenticatedMediaSource(mediaUrl);
+
           if (mounted) {
-            setUri(`${API_BASE_URL}${item.mediaUrl}`);
+            setSource(authenticatedSource);
           }
 
           return;
         }
 
-        // ---------- CACHE ----------
+        // CACHE
         const cached = getCachedMedia(mediaUrl);
 
         if (cached) {
           if (mounted) {
-            setUri(cached);
+            /*
+             * Cached/decrypted media is local media.
+             * No Authorization header is required.
+             */
+            setSource({
+              uri: cached,
+            });
           }
 
           return;
         }
 
-        // ---------- DECRYPT ----------
+        // DECRYPT
         const decrypted = await decryptRemoteMedia({
-          mediaUrl: mediaUrl,
+          mediaUrl,
           encryptedMediaKey: item.encryptedMediaKey!,
           mediaKeyIV: item.mediaKeyIV!,
           mediaKeyAuthTag: item.mediaKeyAuthTag,
@@ -57,13 +83,19 @@ export default function useDecryptedImage(item: SharedMediaItem | null) {
         });
 
         if (mounted) {
-          setUri(decrypted);
+          /*
+           * Decrypted media is stored locally and therefore does
+           * not need the authenticated remote-media header.
+           */
+          setSource({
+            uri: decrypted,
+          });
         }
       } catch (error) {
         console.log("Image decrypt error:", error);
 
         if (mounted) {
-          setUri(null);
+          setSource(null);
         }
       } finally {
         if (mounted) {
@@ -80,7 +112,7 @@ export default function useDecryptedImage(item: SharedMediaItem | null) {
   }, [item, getCachedMedia]);
 
   return {
-    uri,
+    source,
     loading,
   };
 }

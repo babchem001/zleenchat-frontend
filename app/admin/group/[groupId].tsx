@@ -1,5 +1,3 @@
-import { API_BASE_URL } from "@/src/services/api/apiClient";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -25,6 +23,12 @@ import {
 } from "@/src/services/admin/adminService";
 import { Message } from "@/src/types/chat.types";
 import { useSocket } from "@/hooks/useSocket";
+
+// ============================================================
+// PHASE E — STEP 5
+// Authenticated message-media resolution.
+// ============================================================
+import { getAuthenticatedMediaSource } from "@/src/utils/mediaReference";
 
 type MonitorTab = "MESSAGES" | "MEMBERS" | "DELETED" | "EDITED" | "SYSTEM";
 
@@ -135,12 +139,25 @@ export default function AdminGroupDetailsScreen() {
   // HELPERS
   // ============================================================
 
+  /*
+   * IMPORTANT:
+   *
+   * This resolver is intentionally retained for avatars.
+   *
+   * Group avatars, member avatars and sender avatars are not
+   * message.mediaUrl references and therefore must not automatically
+   * be sent through /messages/media?key=...
+   *
+   * PHASE E — STEP 5:
+   * Message media itself is handled by AuthenticatedMessageImage
+   * below.
+   */
   const resolveMediaUrl = (mediaUrl?: string | null) => {
     if (!mediaUrl) return null;
 
     return mediaUrl.startsWith("http")
       ? mediaUrl
-      : `${API_BASE_URL}${mediaUrl}`;
+      : `${process.env.EXPO_PUBLIC_API_URL ?? "https://api.zleenchat.com"}${mediaUrl}`;
   };
 
   const formatTime = (date: string) => {
@@ -1038,13 +1055,23 @@ export default function AdminGroupDetailsScreen() {
                             </View>
                           )}
 
-                          {/* IMAGE */}
+                          {/* ==================================================
+                                PHASE E — STEP 5
+                                MESSAGE IMAGE
+                                
+                                Do NOT build:
+                                `${API_BASE_URL}${message.mediaUrl}`
+
+                                New message.mediaUrl values are R2 object
+                                references which resolve to the private
+                                /messages/media endpoint and therefore
+                                require the authenticated Authorization header.
+                            =================================================== */}
+
                           {message.contentType === "IMAGE" &&
                             message.mediaUrl && (
-                              <Image
-                                source={{
-                                  uri: resolveMediaUrl(message.mediaUrl)!,
-                                }}
+                              <AuthenticatedMessageImage
+                                mediaReference={message.mediaUrl}
                                 style={styles.messageImage}
                               />
                             )}
@@ -1115,7 +1142,9 @@ export default function AdminGroupDetailsScreen() {
 
                               {!!message.messageContent && (
                                 <Text style={styles.deletedOriginal}>
-                                  &quot;{message.messageContent}&quot;
+                                  &quot;
+                                  {message.messageContent}
+                                  &quot;
                                 </Text>
                               )}
 
@@ -1324,6 +1353,112 @@ export default function AdminGroupDetailsScreen() {
         </Pressable>
       </Modal>
     </SafeAreaView>
+  );
+}
+
+/* ================================================================
+   PHASE E — STEP 5
+   AUTHENTICATED MESSAGE IMAGE
+================================================================ */
+
+/**
+ * Renders a message image using the authenticated private media
+ * endpoint.
+ *
+ * Message media references are no longer treated as public URLs.
+ *
+ * Canonical flow:
+ *
+ * Message.mediaUrl
+ *   ↓
+ * getAuthenticatedMediaSource()
+ *   ↓
+ * /messages/media?key=...
+ *   ↓
+ * Authorization: Bearer <token>
+ *   ↓
+ * private R2 object
+ */
+function AuthenticatedMessageImage({
+  mediaReference,
+  style,
+}: {
+  mediaReference: string;
+  style: any;
+}) {
+  const [source, setSource] = useState<{
+    uri: string;
+    headers?: Record<string, string>;
+  } | null>(null);
+
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveSource = async () => {
+      try {
+        setError(false);
+        setSource(null);
+
+        const authenticatedSource =
+          await getAuthenticatedMediaSource(mediaReference);
+
+        if (cancelled) {
+          return;
+        }
+
+        setSource(authenticatedSource);
+      } catch (error) {
+        console.log(
+          "PHASE E STEP 5 - ADMIN MESSAGE IMAGE RESOLUTION ERROR:",
+          error,
+        );
+
+        if (!cancelled) {
+          setError(true);
+        }
+      }
+    };
+
+    resolveSource();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mediaReference]);
+
+  if (error) {
+    return (
+      <View style={[style, styles.mediaUnavailable]}>
+        <Ionicons name="image-outline" size={28} color={COLORS.muted} />
+
+        <Text style={styles.mediaUnavailableText}>Media unavailable</Text>
+      </View>
+    );
+  }
+
+  if (!source) {
+    return (
+      <View style={[style, styles.mediaLoading]}>
+        <ActivityIndicator size="small" color={COLORS.purple} />
+      </View>
+    );
+  }
+
+  return (
+    <Image
+      source={source}
+      style={style}
+      resizeMode="cover"
+      onError={(event) => {
+        console.log(
+          "PHASE E STEP 5 - ADMIN MESSAGE IMAGE LOAD ERROR:",
+          event.nativeEvent,
+        );
+        setError(true);
+      }}
+    />
   );
 }
 
@@ -2334,6 +2469,28 @@ const styles = StyleSheet.create({
     height: 240,
     borderRadius: 14,
     marginBottom: 7,
+  },
+
+  // PHASE E — STEP 5:
+  // Loading state for authenticated private message media.
+  mediaLoading: {
+    backgroundColor: COLORS.purpleSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // PHASE E — STEP 5:
+  // Fallback when the authenticated media request fails.
+  mediaUnavailable: {
+    backgroundColor: COLORS.purpleSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  mediaUnavailableText: {
+    color: COLORS.muted,
+    fontSize: 10,
+    marginTop: 5,
   },
 
   fileCard: {

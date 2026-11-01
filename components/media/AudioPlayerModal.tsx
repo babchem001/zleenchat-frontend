@@ -6,6 +6,7 @@ import { Message } from "@/src/types/chat.types";
 type Props = {
   visible: boolean;
   audioUri: string;
+  audioHeaders?: Record<string, string>;
   message: Message;
   onClose: () => void;
 };
@@ -13,6 +14,7 @@ type Props = {
 export default function AudioPlayerModal({
   visible,
   audioUri,
+  audioHeaders,
   message,
   onClose,
 }: Props) {
@@ -32,8 +34,15 @@ export default function AudioPlayerModal({
       return sound;
     }
 
+    /*
+     * PHASE F — STEP 4
+     *
+     * Private remote audio requires the authenticated request headers.
+     * Local file:// audio continues to work without headers.
+     */
     const { sound: loadedSound } = await Audio.Sound.createAsync({
       uri: audioUri,
+      ...(audioHeaders ? { headers: audioHeaders } : {}),
     });
 
     setSound(loadedSound);

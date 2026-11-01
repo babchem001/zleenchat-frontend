@@ -1,19 +1,10 @@
-import React, {
-  memo,
-  useCallback,
-  useMemo,
-  useRef,
-  useEffect,
-  useState,
-} from "react";
-
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, View, Animated } from "react-native";
-
 import { Ionicons } from "@expo/vector-icons";
 
 import { SharedMediaItem } from "@/src/services/chat/sharedMediaService";
 import { groupingSharedMedia } from "@/src/utils/groupingSharedMedia";
-import { API_BASE_URL } from "@/src/services/api/apiClient";
+import { getAuthenticatedMediaSource } from "@/src/utils/mediaReference";
 
 import SharedMediaSectionList from "./SharedMediaSectionList";
 import SharedVideoViewer from "./SharedVideoViewer";
@@ -126,6 +117,65 @@ const VideoCell = memo(function VideoCell({
 }: VideoCellProps) {
   const { scale, opacity } = useSelectionAnimation(selected);
 
+  const [thumbnailSource, setThumbnailSource] = useState<{
+    uri: string;
+    headers?: Record<string, string>;
+  } | null>(null);
+
+  const [thumbnailError, setThumbnailError] = useState(false);
+
+  /**
+   * PHASE E — STEP 5
+   *
+   * Resolve the video's thumbnail/media reference through the
+   * authenticated backend media endpoint.
+   *
+   * The backend now treats R2 message media as private, so the
+   * Authorization header must be attached to the request.
+   *
+   * Prefer thumbnailUrl when available. Fall back to mediaUrl for
+   * older/shared-media records that do not have a separate thumbnail.
+   */
+  useEffect(() => {
+    let mounted = true;
+
+    const resolveThumbnail = async () => {
+      const reference = item.thumbnailUrl ?? item.mediaUrl;
+
+      if (!reference) {
+        if (mounted) {
+          setThumbnailSource(null);
+          setThumbnailError(true);
+        }
+
+        return;
+      }
+
+      try {
+        setThumbnailError(false);
+
+        const source = await getAuthenticatedMediaSource(reference);
+
+        if (mounted) {
+          setThumbnailSource(source);
+        }
+      } catch (error) {
+        console.log("VIDEO GRID THUMBNAIL SOURCE ERROR:", error);
+
+        if (mounted) {
+          setThumbnailSource(null);
+          setThumbnailError(true);
+        }
+      }
+    };
+
+    resolveThumbnail();
+
+    return () => {
+      mounted = false;
+    };
+  }, [item.thumbnailUrl, item.mediaUrl]);
+
   const handlePress = useCallback(() => {
     if (selectionMode) {
       onToggleSelection(item.id);
@@ -147,12 +197,20 @@ const VideoCell = memo(function VideoCell({
         onLongPress={handleLongPress}
         delayLongPress={250}
       >
-        <Image
-          source={{
-            uri: `${API_BASE_URL}${item.thumbnailUrl ?? item.mediaUrl}`,
-          }}
-          style={styles.thumbnail}
-        />
+        {thumbnailSource && !thumbnailError ? (
+          <Image
+            source={thumbnailSource}
+            style={styles.thumbnail}
+            resizeMode="cover"
+            onError={() => {
+              setThumbnailError(true);
+            }}
+          />
+        ) : (
+          <View style={styles.thumbnailFallback}>
+            <Ionicons name="videocam-outline" size={34} color="#64748B" />
+          </View>
+        )}
 
         <View style={styles.overlay}>
           <Ionicons name="play-circle" size={34} color="#FFFFFF" />
@@ -206,6 +264,14 @@ const styles = StyleSheet.create({
   thumbnail: {
     width: "100%",
     height: "100%",
+  },
+
+  thumbnailFallback: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#E2E8F0",
   },
 
   overlay: {

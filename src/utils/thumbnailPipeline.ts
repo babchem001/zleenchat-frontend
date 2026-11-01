@@ -6,6 +6,7 @@ import { secureDeleteFile } from "../services/chat/secureDelete";
 import { useMediaCacheStore } from "@/src/store/chat/mediaCacheStore";
 import { API_BASE_URL } from "@/src/services/api/apiClient";
 import { getToken } from "@/src/services/storage/tokenService";
+import { getMediaUrl } from "./mediaReference";
 
 type EncryptedThumbnailChunk = {
   encryptedChunk?: string;
@@ -96,9 +97,13 @@ export const decryptRemoteThumbnail = async ({
   // ================= DOWNLOAD =================
   const downloadPath = `${Paths.cache.uri}encrypted-thumbnail-${Date.now()}.txt`;
 
-  const remoteUri = thumbnailUrl.startsWith("http")
-    ? thumbnailUrl
-    : `${API_BASE_URL}${thumbnailUrl}`;
+  // PHASE E — STEP 5:
+  // Resolve the backend/private R2 thumbnail reference.
+  const remoteUri = getMediaUrl(thumbnailUrl);
+
+  if (!remoteUri) {
+    throw new Error("Invalid thumbnail reference");
+  }
 
   const token = await getToken();
 

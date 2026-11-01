@@ -4,6 +4,7 @@ import { decryptMediaKey } from "./mediaKeyEncryption";
 import { decryptChunk } from "./chunkDecryption";
 import { secureDeleteFile } from "../services/chat/secureDelete";
 import { useMediaCacheStore } from "../store/chat/mediaCacheStore";
+import { getMediaUrl } from "./mediaReference";
 
 import { API_BASE_URL } from "@/src/services/api/apiClient";
 import { getToken } from "@/src/services/storage/tokenService";
@@ -67,9 +68,13 @@ export const decryptRemoteMedia = async ({
       throw new Error("Authentication token not found for media download");
     }
 
-    const remoteUri = mediaUrl.startsWith("http")
-      ? mediaUrl
-      : `${API_BASE_URL}${mediaUrl}`;
+    // PHASE E — STEP 5:
+    // Resolve R2/backend media references through the central media resolver.
+    const remoteUri = getMediaUrl(mediaUrl);
+
+    if (!remoteUri) {
+      throw new Error("Invalid media reference");
+    }
 
     const downloadResult = await FileSystem.downloadAsync(
       remoteUri,

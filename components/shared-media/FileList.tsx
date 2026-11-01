@@ -1,10 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   TouchableOpacity,
   View,
@@ -14,6 +8,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
+import { Paths } from "expo-file-system";
 
 import SharedMediaSectionList from "./SharedMediaSectionList";
 
@@ -21,7 +16,7 @@ import { groupingSharedMedia } from "@/src/utils/groupingSharedMedia";
 import { SharedMediaItem } from "@/src/services/chat/sharedMediaService";
 import { decryptRemoteMedia } from "@/src/utils/mediaPipeline";
 import { useMediaCacheStore } from "@/src/store/chat/mediaCacheStore";
-import { API_BASE_URL } from "@/src/services/api/apiClient";
+import { getAuthenticatedMediaSource } from "@/src/utils/mediaReference";
 import { openDocuments } from "@/src/utils/openDocuments";
 
 import {
@@ -31,6 +26,11 @@ import {
 } from "@/src/utils/sharedMediaHelpers";
 import { useSelectionAnimation } from "@/hooks/useSelectionAnimation";
 import { FeedbackType } from "@/src/components/AppFeedbackModal";
+
+type AuthenticatedMediaSource = {
+  uri: string;
+  headers?: Record<string, string>;
+};
 
 type Props = {
   items: SharedMediaItem[];
@@ -57,6 +57,7 @@ export default function FileList({
   showFeedback,
 }: Props) {
   const sections = useMemo(() => groupingSharedMedia(items), [items]);
+
   const renderItem = useCallback(
     (item: SharedMediaItem) => (
       <FileRow
@@ -68,7 +69,13 @@ export default function FileList({
         showFeedback={showFeedback}
       />
     ),
-    [selectionMode, selectedItems, onEnterSelectionMode, onToggleSelection],
+    [
+      selectionMode,
+      selectedItems,
+      onEnterSelectionMode,
+      onToggleSelection,
+      showFeedback,
+    ],
   );
 
   return (
@@ -89,6 +96,7 @@ type FileRowProps = {
 
   onEnterSelectionMode: (id: number) => void;
   onToggleSelection: (id: number) => void;
+
   showFeedback: (type: FeedbackType, title: string, message: string) => void;
 };
 
@@ -104,14 +112,71 @@ const FileRow = React.memo(function FileRow({
 
   const [decryptedUri, setDecryptedUri] = useState<string | null>(null);
 
+  /**
+   * PHASE E — STEP 5
+   *
+   * Unencrypted R2/backend references require an Authorization header.
+   *
+   * Files cannot be opened directly with openDocuments() using the private
+   * backend URL because openDocuments() expects a local file path.
+   *
+   * Therefore:
+   *
+   * R2 reference
+   *   ↓
+   * authenticated download
+   *   ↓
+   * local cache file
+   *   ↓
+   * openDocuments()
+   */
+  const [authenticatedMediaSource, setAuthenticatedMediaSource] =
+    useState<AuthenticatedMediaSource | null>(null);
+
   const { scale, opacity } = useSelectionAnimation(selected);
 
-  const displayUri = item.isMediaEncrypted
-    ? decryptedUri
-    : item.mediaUrl
-      ? `${API_BASE_URL}${item.mediaUrl}`
-      : null;
+  /**
+   * Resolve the unencrypted R2/backend media reference.
+   */
+  useEffect(() => {
+    let mounted = true;
 
+    const resolveMediaSource = async () => {
+      if (!item.mediaUrl || item.isMediaEncrypted) {
+        if (mounted) {
+          setAuthenticatedMediaSource(null);
+        }
+
+        return;
+      }
+
+      try {
+        const source = await getAuthenticatedMediaSource(item.mediaUrl);
+
+        if (mounted) {
+          setAuthenticatedMediaSource(source);
+        }
+      } catch (error) {
+        console.log("Document media source resolution error:", error);
+
+        if (mounted) {
+          setAuthenticatedMediaSource(null);
+        }
+      }
+    };
+
+    resolveMediaSource();
+
+    return () => {
+      mounted = false;
+    };
+  }, [item.mediaUrl, item.isMediaEncrypted]);
+
+  /**
+   * Decrypt encrypted documents when necessary.
+   *
+   * Cached media is used first to avoid unnecessary decryption.
+   */
   useEffect(() => {
     let mounted = true;
 
@@ -169,11 +234,71 @@ const FileRow = React.memo(function FileRow({
     getCachedMedia,
   ]);
 
+  /**
+   * Sanitize the original filename before creating a local cache path.
+   */
+  const getSafeFileName = useCallback(() => {
+    const originalName =
+      item.fileName && item.fileName.trim().length > 0
+        ? decodeURIComponent(item.fileName)
+        : `zleenchat-file-${item.id}`;
+
+    return originalName
+      .replace(/[\\/:*?"<>|]/g, "_")
+      .replace(/\s+/g, " ")
+      .trim();
+  }, [item.fileName, item.id]);
+
+  /**
+   * Download an unencrypted private R2/backend file to the local cache.
+   *
+   * This is necessary because openDocuments() expects a local file path.
+   */
+  const downloadAuthenticatedFile = useCallback(
+    async (source: AuthenticatedMediaSource): Promise<string> => {
+      const safeFileName = getSafeFileName();
+
+      const destination = `${Paths.cache.uri}zleenchat-shared-${item.id}-${safeFileName}`;
+
+      /**
+       * If the same local file already exists, reuse it.
+       */
+      const existing = await FileSystem.getInfoAsync(destination);
+
+      if (existing.exists) {
+        return destination;
+      }
+
+      const downloadResult = await FileSystem.downloadAsync(
+        source.uri,
+        destination,
+        source.headers
+          ? {
+              headers: source.headers,
+            }
+          : undefined,
+      );
+
+      if (downloadResult.status < 200 || downloadResult.status >= 300) {
+        throw new Error(
+          `File download failed with status ${downloadResult.status}`,
+        );
+      }
+
+      return downloadResult.uri;
+    },
+    [getSafeFileName, item.id],
+  );
+
   const openDocument = useCallback(async () => {
     try {
-      let path = displayUri;
-
+      /**
+       * Encrypted files are already downloaded/decrypted into a local
+       * cache file by decryptRemoteMedia().
+       */
       if (item.isMediaEncrypted) {
+        let path = decryptedUri;
+
         const info = path
           ? await FileSystem.getInfoAsync(path)
           : { exists: false };
@@ -196,18 +321,51 @@ const FileRow = React.memo(function FileRow({
 
           path = decrypted;
         }
-      }
 
-      if (!path) {
+        if (!path) {
+          return;
+        }
+
+        await openDocuments(path, showFeedback);
+
         return;
       }
 
-      await openDocuments(path, showFeedback);
+      /**
+       * Unencrypted media:
+       *
+       * R2 key
+       *   ↓
+       * /messages/media?key=...
+       *   ↓
+       * authenticated request
+       *   ↓
+       * local cache file
+       *   ↓
+       * openDocuments()
+       */
+      if (!authenticatedMediaSource) {
+        return;
+      }
+
+      const localPath = await downloadAuthenticatedFile(
+        authenticatedMediaSource,
+      );
+
+      await openDocuments(localPath, showFeedback);
     } catch (error) {
       console.log("Open document error:", error);
+
+      showFeedback(
+        FeedbackType.ERROR,
+        "Unable to open file",
+        "The file could not be downloaded or opened. Please try again.",
+      );
     }
   }, [
-    displayUri,
+    authenticatedMediaSource,
+    decryptedUri,
+    downloadAuthenticatedFile,
     item.isMediaEncrypted,
     item.mediaUrl,
     item.encryptedMediaKey,
@@ -365,7 +523,6 @@ const styles = StyleSheet.create({
 
   checkmark: {
     position: "absolute",
-
     top: 10,
     right: 10,
   },

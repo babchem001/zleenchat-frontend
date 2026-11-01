@@ -6,6 +6,7 @@ import { VideoView, useVideoPlayer } from "expo-video";
 
 type Props = {
   uri: string;
+  headers?: Record<string, string>;
   active: boolean;
 };
 
@@ -20,12 +21,27 @@ const formatTime = (seconds: number) => {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
-export default function SharedVideoPage({ uri, active }: Props) {
+export default function SharedVideoPage({ uri, headers, active }: Props) {
   const [, forceUpdate] = useState(0);
 
-  const player = useVideoPlayer(uri, (player) => {
-    player.loop = false;
-  });
+  /*
+   * ============================================================
+   * PHASE F — STEP 4
+   *
+   * expo-video does not inherit Axios authentication.
+   * Private remote media therefore needs its Authorization
+   * header passed directly into the video source.
+   * ============================================================
+   */
+  const player = useVideoPlayer(
+    {
+      uri,
+      ...(headers ? { headers } : {}),
+    },
+    (player) => {
+      player.loop = false;
+    },
+  );
 
   useEffect(() => {
     if (!active) {

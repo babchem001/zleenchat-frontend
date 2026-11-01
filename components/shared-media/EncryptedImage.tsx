@@ -10,7 +10,7 @@ type Props = {
 };
 
 export default function EncryptedImage({ item, style }: Props) {
-  const { uri, loading } = useDecryptedImage(item);
+  const { source, loading } = useDecryptedImage(item);
 
   if (loading) {
     return (
@@ -29,13 +29,13 @@ export default function EncryptedImage({ item, style }: Props) {
     );
   }
 
-  if (!uri) {
+  if (!source) {
     return null;
   }
 
   return (
     <Image
-      source={{ uri }}
+      source={source}
       style={style}
       contentFit="cover"
       transition={150}

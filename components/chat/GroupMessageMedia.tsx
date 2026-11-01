@@ -1,4 +1,3 @@
-import { API_BASE_URL } from "@/src/services/api/apiClient";
 import React, { useEffect, useState } from "react";
 import { Audio } from "expo-av";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
@@ -8,11 +7,17 @@ import { Image } from "expo-image";
 
 import { Message } from "@/src/types/chat.types";
 import { decryptRemoteMedia } from "@/src/utils/mediaPipeline";
+import { getAuthenticatedMediaSource } from "@/src/utils/mediaReference";
 import { useMediaCacheStore } from "@/src/store/chat/mediaCacheStore";
 import ImageViewerModal from "../media/ImageViewerModal";
 import VideoViewerModal from "../media/VideoViewerModal";
 import { openDocuments } from "@/src/utils/openDocuments";
 import { FeedbackType } from "@/src/components/AppFeedbackModal";
+
+type AuthenticatedMediaSource = {
+  uri: string;
+  headers?: Record<string, string>;
+};
 
 type Props = {
   message: Message;
@@ -29,9 +34,18 @@ const GroupMessageMedia: React.FC<Props> = ({
 }) => {
   const [showImageViewer, setShowImageViewer] = useState(false);
   const [showVideoViewer, setShowVideoViewer] = useState(false);
+
   const [decryptedUri, setDecryptedUri] = useState<string | null>(null);
   const [isDecrypting, setIsDecrypting] = useState(false);
+
+  const [authenticatedMediaSource, setAuthenticatedMediaSource] =
+    useState<AuthenticatedMediaSource | null>(null);
+
+  const [authenticatedThumbnailSource, setAuthenticatedThumbnailSource] =
+    useState<AuthenticatedMediaSource | null>(null);
+
   const [thumbnailLoading, setThumbnailLoading] = useState(true);
+
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
@@ -44,17 +58,147 @@ const GroupMessageMedia: React.FC<Props> = ({
 
   const getCachedMedia = useMediaCacheStore((state) => state.getCachedMedia);
 
-  const mediaUrl = message.mediaUrl
-    ? `${API_BASE_URL}${message.mediaUrl}`
-    : null;
+  /*
+   * ============================================================
+   * PHASE E — STEP 5
+   *
+   * Resolve unencrypted R2-backed media through the authenticated
+   * backend media endpoint.
+   *
+   * The backend now returns references such as:
+   *
+   * /messages/media?key=messages/images/message-UUID.jpg
+   *
+   * React Native media components do not automatically use the
+   * application's Axios Authorization interceptor, so the bearer
+   * token must be attached explicitly.
+   *
+   * Encrypted media continues through decryptRemoteMedia().
+   * ============================================================
+   */
+  useEffect(() => {
+    let mounted = true;
 
-  const displayMedia =
-    message.uploadStatus === "UPLOADING" || message.uploadStatus === "FAILED"
-      ? message.localUri
-      : message.isMediaEncrypted
-        ? decryptedUri
-        : mediaUrl;
+    const resolveMedia = async () => {
+      if (
+        !message.mediaUrl ||
+        message.isMediaEncrypted ||
+        message.uploadStatus === "UPLOADING" ||
+        message.uploadStatus === "FAILED"
+      ) {
+        if (mounted) {
+          setAuthenticatedMediaSource(null);
+        }
 
+        return;
+      }
+
+      try {
+        const source = await getAuthenticatedMediaSource(message.mediaUrl);
+
+        if (mounted) {
+          setAuthenticatedMediaSource(source);
+        }
+      } catch (error) {
+        console.log("GROUP MEDIA SOURCE RESOLUTION ERROR:", error);
+
+        if (mounted) {
+          setAuthenticatedMediaSource(null);
+        }
+      }
+    };
+
+    resolveMedia();
+
+    return () => {
+      mounted = false;
+    };
+  }, [message.mediaUrl, message.isMediaEncrypted, message.uploadStatus]);
+
+  /*
+   * ============================================================
+   * PHASE E — STEP 5
+   *
+   * Resolve R2-backed thumbnails through the authenticated media
+   * endpoint.
+   * ============================================================
+   */
+  useEffect(() => {
+    let mounted = true;
+
+    const resolveThumbnail = async () => {
+      setThumbnailLoading(true);
+
+      if (!message.thumbnailUrl) {
+        if (mounted) {
+          setAuthenticatedThumbnailSource(null);
+          setThumbnailLoading(false);
+        }
+
+        return;
+      }
+
+      try {
+        const source = await getAuthenticatedMediaSource(message.thumbnailUrl);
+
+        if (mounted) {
+          setAuthenticatedThumbnailSource(source);
+        }
+      } catch (error) {
+        console.log("GROUP THUMBNAIL SOURCE RESOLUTION ERROR:", error);
+
+        if (mounted) {
+          setAuthenticatedThumbnailSource(null);
+        }
+      }
+    };
+
+    resolveThumbnail();
+
+    return () => {
+      mounted = false;
+    };
+  }, [message.thumbnailUrl]);
+
+  /*
+   * ============================================================
+   * PHASE E — STEP 5
+   *
+   * Select the appropriate media representation:
+   *
+   * UPLOADING / FAILED
+   *   -> localUri
+   *
+   * ENCRYPTED
+   *   -> decrypted local file
+   *
+   * UNENCRYPTED
+   *   -> authenticated R2/backend source
+   * ============================================================
+   */
+  const displayMedia: string | AuthenticatedMediaSource | null = (() => {
+    if (
+      message.uploadStatus === "UPLOADING" ||
+      message.uploadStatus === "FAILED"
+    ) {
+      return message.localUri || null;
+    }
+
+    if (message.isMediaEncrypted) {
+      return decryptedUri;
+    }
+
+    return authenticatedMediaSource;
+  })();
+
+  /*
+   * ============================================================
+   * Existing encrypted-media handling
+   *
+   * Encrypted video is decrypted when the fullscreen viewer opens.
+   * Other encrypted media can be decrypted as needed.
+   * ============================================================
+   */
   useEffect(() => {
     let mounted = true;
 
@@ -123,6 +267,11 @@ const GroupMessageMedia: React.FC<Props> = ({
     showVideoViewer,
   ]);
 
+  /*
+   * ============================================================
+   * Audio cleanup
+   * ============================================================
+   */
   useEffect(() => {
     return () => {
       if (sound) {
@@ -135,6 +284,7 @@ const GroupMessageMedia: React.FC<Props> = ({
     if (!duration) {
       return "0:00";
     }
+
     const totalSeconds = Math.floor(duration / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
@@ -146,16 +296,36 @@ const GroupMessageMedia: React.FC<Props> = ({
     const totalSeconds = Math.floor(millis / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
+
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
   };
 
+  /*
+   * ============================================================
+   * PHASE E — STEP 5
+   *
+   * Play audio from:
+   *
+   * - decrypted local file when encrypted
+   * - authenticated backend/R2 source when unencrypted
+   * ============================================================
+   */
   const playPauseAudio = async () => {
     try {
-      let playableUri = displayMedia;
+      let playableSource:
+        | string
+        | {
+            uri: string;
+            headers?: Record<string, string>;
+          }
+        | null = displayMedia;
 
       if (message.isMediaEncrypted) {
-        const fileInfo = playableUri
-          ? await FileSystem.getInfoAsync(playableUri)
+        const localUri =
+          typeof playableSource === "string" ? playableSource : null;
+
+        const fileInfo = localUri
+          ? await FileSystem.getInfoAsync(localUri)
           : { exists: false };
 
         if (!fileInfo.exists) {
@@ -172,18 +342,24 @@ const GroupMessageMedia: React.FC<Props> = ({
 
           setDecryptedUri(decrypted);
 
-          playableUri = decrypted;
+          playableSource = decrypted;
         }
       }
 
-      if (!playableUri) {
+      if (!playableSource) {
         return;
       }
 
       if (!sound) {
         const { sound: newSound } = await Audio.Sound.createAsync(
-          { uri: playableUri },
-          { shouldPlay: true },
+          typeof playableSource === "string"
+            ? {
+                uri: playableSource,
+              }
+            : playableSource,
+          {
+            shouldPlay: true,
+          },
         );
 
         newSound.setOnPlaybackStatusUpdate((status) => {
@@ -332,11 +508,24 @@ const GroupMessageMedia: React.FC<Props> = ({
     );
   };
 
+  /*
+   * ============================================================
+   * PHASE E — STEP 5
+   *
+   * Open a file from the authenticated backend/R2 endpoint.
+   *
+   * openDocuments() requires a local filesystem path, so an
+   * unencrypted remote file must first be downloaded with the
+   * Authorization header.
+   * ============================================================
+   */
   const openFile = async () => {
     try {
-      let documentPath = displayMedia;
+      let documentPath: string | null = null;
 
       if (message.isMediaEncrypted) {
+        documentPath = decryptedUri;
+
         const fileInfo = documentPath
           ? await FileSystem.getInfoAsync(documentPath)
           : { exists: false };
@@ -355,6 +544,30 @@ const GroupMessageMedia: React.FC<Props> = ({
 
           documentPath = decrypted;
         }
+      } else {
+        const source = authenticatedMediaSource;
+
+        if (!source?.uri) {
+          return;
+        }
+
+        const fileName = message.fileName || `zleenchat-${message.id}`;
+
+        const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+        const destination = `${FileSystem.cacheDirectory}${safeFileName}`;
+
+        const downloadResult = await FileSystem.downloadAsync(
+          source.uri,
+          destination,
+          source.headers
+            ? {
+                headers: source.headers,
+              }
+            : undefined,
+        );
+
+        documentPath = downloadResult.uri;
       }
 
       if (!documentPath) {
@@ -367,10 +580,21 @@ const GroupMessageMedia: React.FC<Props> = ({
     }
   };
 
+  /*
+   * ============================================================
+   * IMAGE
+   * ============================================================
+   */
   if (message.contentType === "IMAGE") {
     if (!displayMedia) {
       return null;
     }
+
+    const imageUri =
+      typeof displayMedia === "string" ? displayMedia : displayMedia.uri;
+
+    const imageHeaders =
+      typeof displayMedia === "string" ? undefined : displayMedia.headers;
 
     return (
       <>
@@ -455,20 +679,30 @@ const GroupMessageMedia: React.FC<Props> = ({
             </View>
           )}
         </View>
+
         {renderMediaCaption()}
+
         <ImageViewerModal
           visible={showImageViewer}
-          imageUri={displayMedia || ""}
+          imageUri={imageUri}
+          imageHeaders={imageHeaders}
           onClose={() => setShowImageViewer(false)}
         />
       </>
     );
   }
 
+  /*
+   * ============================================================
+   * VIDEO
+   * ============================================================
+   */
   if (message.contentType === "VIDEO") {
-    const thumbnailSource = message.thumbnailUrl
-      ? `${API_BASE_URL}${message.thumbnailUrl}`
-      : message.thumbnailUri || message.localUri;
+    const thumbnailSource =
+      authenticatedThumbnailSource ||
+      message.thumbnailUri ||
+      message.localUri ||
+      null;
 
     return (
       <>
@@ -486,22 +720,24 @@ const GroupMessageMedia: React.FC<Props> = ({
               },
             ]}
           >
-            <Image
-              source={thumbnailSource}
-              style={[
-                styles.video,
-                {
-                  width: MEDIA_WIDTH,
-                  height: MEDIA_HEIGHT,
-                },
-              ]}
-              contentFit="cover"
-              onLoad={() => setThumbnailLoading(false)}
-              onError={() => setThumbnailLoading(false)}
-            />
+            {thumbnailSource && (
+              <Image
+                source={thumbnailSource}
+                style={[
+                  styles.video,
+                  {
+                    width: MEDIA_WIDTH,
+                    height: MEDIA_HEIGHT,
+                  },
+                ]}
+                contentFit="cover"
+                onLoad={() => setThumbnailLoading(false)}
+                onError={() => setThumbnailLoading(false)}
+              />
+            )}
 
             {/* Thumbnail loading */}
-            {thumbnailLoading && (
+            {thumbnailLoading && !!thumbnailSource && (
               <View style={styles.loadingOverlay}>
                 <View style={styles.overlayStatus}>
                   <Ionicons name="image-outline" size={17} color="#FFFFFF" />
@@ -578,16 +814,30 @@ const GroupMessageMedia: React.FC<Props> = ({
             )}
           </View>
         </TouchableOpacity>
+
         {renderMediaCaption()}
+
         <VideoViewerModal
           visible={showVideoViewer}
-          videoUri={displayMedia || ""}
+          videoUri={
+            typeof displayMedia === "string"
+              ? displayMedia || ""
+              : displayMedia?.uri || ""
+          }
+          videoHeaders={
+            typeof displayMedia === "string" ? undefined : displayMedia?.headers
+          }
           onClose={() => setShowVideoViewer(false)}
         />
       </>
     );
   }
 
+  /*
+   * ============================================================
+   * AUDIO
+   * ============================================================
+   */
   if (message.contentType === "AUDIO" && displayMedia) {
     return (
       <>
@@ -659,6 +909,11 @@ const GroupMessageMedia: React.FC<Props> = ({
     );
   }
 
+  /*
+   * ============================================================
+   * FILE
+   * ============================================================
+   */
   if (message.contentType === "FILE") {
     const fileMeta = `${formatFileSize(
       message.fileSize,
@@ -706,6 +961,7 @@ const GroupMessageMedia: React.FC<Props> = ({
             </View>
           </View>
         </TouchableOpacity>
+
         {renderMediaCaption()}
       </>
     );
@@ -751,48 +1007,34 @@ const styles = StyleSheet.create({
   video: {
     width: 238,
     height: 190,
-
     borderRadius: 16,
-
     backgroundColor: "#F4F7FD",
   },
 
   mediaViewIndicator: {
     position: "absolute",
-
     top: 9,
     right: 9,
-
     width: 29,
     height: 29,
-
     borderRadius: 15,
-
     justifyContent: "center",
     alignItems: "center",
-
     backgroundColor: "rgba(24,24,27,0.48)",
   },
 
   playOverlay: {
     position: "absolute",
-
     top: "50%",
     left: "50%",
-
     width: 56,
     height: 56,
-
     marginLeft: -28,
     marginTop: -28,
-
     borderRadius: 28,
-
     justifyContent: "center",
     alignItems: "center",
-
     backgroundColor: "rgba(24,24,27,0.55)",
-
     shadowColor: "#000000",
     shadowOpacity: 0.18,
     shadowRadius: 10,
@@ -800,7 +1042,6 @@ const styles = StyleSheet.create({
       width: 0,
       height: 3,
     },
-
     elevation: 5,
   },
 
@@ -845,7 +1086,6 @@ const styles = StyleSheet.create({
       width: 0,
       height: 3,
     },
-
     elevation: 2,
   },
 
@@ -980,14 +1220,14 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(24,24,27,0.22)",
+    backgroundColor: "rgba(24,24,27,0.38)",
     borderRadius: 16,
   },
 
   loadingText: {
     marginLeft: 6,
     color: "#FFFFFF",
+    fontWeight: "700",
     fontSize: 13,
-    fontWeight: "600",
   },
 });

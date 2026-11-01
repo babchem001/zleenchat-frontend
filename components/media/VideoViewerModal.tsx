@@ -6,13 +6,26 @@ import { VideoView, useVideoPlayer } from "expo-video";
 type Props = {
   visible: boolean;
   videoUri: string;
+  videoHeaders?: Record<string, string>;
   onClose: () => void;
 };
 
-function VideoPlayerContent({ videoUri }: { videoUri: string }) {
-  const player = useVideoPlayer(videoUri, (player) => {
-    player.loop = false;
-  });
+function VideoPlayerContent({
+  videoUri,
+  videoHeaders,
+}: {
+  videoUri: string;
+  videoHeaders?: Record<string, string>;
+}) {
+  const player = useVideoPlayer(
+    {
+      uri: videoUri,
+      ...(videoHeaders ? { headers: videoHeaders } : {}),
+    },
+    (player) => {
+      player.loop = false;
+    },
+  );
 
   return (
     <VideoView
@@ -28,6 +41,7 @@ function VideoPlayerContent({ videoUri }: { videoUri: string }) {
 export default function VideoViewerModal({
   visible,
   videoUri,
+  videoHeaders,
   onClose,
 }: Props) {
   // Don't render anything when closed
@@ -47,7 +61,7 @@ export default function VideoViewerModal({
           <Text style={styles.closeText}>✕</Text>
         </TouchableOpacity>
 
-        <VideoPlayerContent videoUri={videoUri} />
+        <VideoPlayerContent videoUri={videoUri} videoHeaders={videoHeaders} />
       </View>
     </Modal>
   );

@@ -1,10 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -20,12 +14,17 @@ import { Ionicons } from "@expo/vector-icons";
 import { SharedMediaItem } from "@/src/services/chat/sharedMediaService";
 import { decryptRemoteMedia } from "@/src/utils/mediaPipeline";
 import { useMediaCacheStore } from "@/src/store/chat/mediaCacheStore";
-import { API_BASE_URL } from "@/src/services/api/apiClient";
+import { getAuthenticatedMediaSource } from "@/src/utils/mediaReference";
 import { formatDuration } from "@/src/utils/sharedMediaHelpers";
 
 import SharedMediaSectionList from "./SharedMediaSectionList";
 import { groupingSharedMedia } from "@/src/utils/groupingSharedMedia";
 import { useSelectionAnimation } from "@/hooks/useSelectionAnimation";
+
+type AuthenticatedMediaSource = {
+  uri: string;
+  headers?: Record<string, string>;
+};
 
 type Props = {
   items: SharedMediaItem[];
@@ -106,17 +105,66 @@ const AudioRow = React.memo(function AudioRow({
 
   const [decryptedUri, setDecryptedUri] = useState<string | null>(null);
 
+  /**
+   * PHASE E — STEP 5
+   *
+   * Unencrypted R2/backend media is now represented by an authenticated
+   * source object containing the URI and Authorization header.
+   *
+   * Encrypted media continues to use the locally decrypted file URI.
+   */
+  const [authenticatedMediaSource, setAuthenticatedMediaSource] =
+    useState<AuthenticatedMediaSource | null>(null);
+
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
 
   const { scale, opacity } = useSelectionAnimation(selected);
 
-  const displayUri = item.isMediaEncrypted
-    ? decryptedUri
-    : item.mediaUrl
-      ? `${API_BASE_URL}${item.mediaUrl}`
-      : null;
+  /**
+   * PHASE E — STEP 5
+   *
+   * Resolve unencrypted R2/backend media through the authenticated
+   * media-reference helper.
+   *
+   * React Native's audio player does not automatically use the Axios
+   * Authorization interceptor, so the bearer token must be attached
+   * directly to the media source.
+   */
+  useEffect(() => {
+    let mounted = true;
+
+    const resolveMediaSource = async () => {
+      if (!item.mediaUrl || item.isMediaEncrypted) {
+        if (mounted) {
+          setAuthenticatedMediaSource(null);
+        }
+
+        return;
+      }
+
+      try {
+        const source = await getAuthenticatedMediaSource(item.mediaUrl);
+
+        if (mounted) {
+          setAuthenticatedMediaSource(source);
+        }
+      } catch (error) {
+        console.log("Audio media source resolution error:", error);
+
+        if (mounted) {
+          setAuthenticatedMediaSource(null);
+        }
+      }
+    };
+
+    resolveMediaSource();
+
+    return () => {
+      mounted = false;
+    };
+  }, [item.mediaUrl, item.isMediaEncrypted]);
 
   /**
    * Decrypt encrypted audio when necessary.
@@ -196,44 +244,68 @@ const AudioRow = React.memo(function AudioRow({
    */
   const playPause = useCallback(async () => {
     try {
-      let playableUri = displayUri;
+      /**
+       * Encrypted media uses the locally decrypted file.
+       *
+       * Unencrypted media uses the authenticated R2/backend source.
+       */
+      let playableSource: string | AuthenticatedMediaSource | null =
+        item.isMediaEncrypted ? decryptedUri : authenticatedMediaSource;
 
       /**
        * Encrypted media may need to be decrypted on demand.
        */
       if (item.isMediaEncrypted) {
-        const info = playableUri
-          ? await FileSystem.getInfoAsync(playableUri)
+        const decryptedPath =
+          typeof playableSource === "string" ? playableSource : null;
+
+        const info = decryptedPath
+          ? await FileSystem.getInfoAsync(decryptedPath)
           : { exists: false };
 
         if (!info.exists) {
+          if (!item.mediaUrl || !item.encryptedMediaKey || !item.mediaKeyIV) {
+            return;
+          }
+
           const decrypted = await decryptRemoteMedia({
-            mediaUrl: item.mediaUrl!,
-            encryptedMediaKey: item.encryptedMediaKey!,
-            mediaKeyIV: item.mediaKeyIV!,
+            mediaUrl: item.mediaUrl,
+            encryptedMediaKey: item.encryptedMediaKey,
+            mediaKeyIV: item.mediaKeyIV,
             mediaKeyAuthTag: item.mediaKeyAuthTag,
             mimeType: item.mimeType,
             fileName: item.fileName,
           });
 
-          playableUri = decrypted;
+          playableSource = decrypted;
 
           setDecryptedUri(decrypted);
         }
       }
 
-      if (!playableUri) {
+      if (!playableSource) {
         return;
       }
 
       /**
        * First playback: create the Audio.Sound instance.
+       *
+       * For unencrypted R2 media, playableSource contains:
+       *
+       * {
+       *   uri: ".../messages/media?key=...",
+       *   headers: {
+       *     Authorization: "Bearer ..."
+       *   }
+       * }
        */
       if (!sound) {
         const { sound: newSound } = await Audio.Sound.createAsync(
-          {
-            uri: playableUri,
-          },
+          typeof playableSource === "string"
+            ? {
+                uri: playableSource,
+              }
+            : playableSource,
           {
             shouldPlay: true,
           },
@@ -278,7 +350,8 @@ const AudioRow = React.memo(function AudioRow({
       console.log("Audio playback error:", error);
     }
   }, [
-    displayUri,
+    authenticatedMediaSource,
+    decryptedUri,
     item.isMediaEncrypted,
     item.mediaUrl,
     item.encryptedMediaKey,

@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 
-import { API_BASE_URL } from "@/src/services/api/apiClient";
 import { SharedMediaItem } from "@/src/services/chat/sharedMediaService";
 import { decryptRemoteMedia } from "@/src/utils/mediaPipeline";
 import { useMediaCacheStore } from "@/src/store/chat/mediaCacheStore";
+import { getAuthenticatedMediaSource } from "@/src/utils/mediaReference";
 import { Image } from "expo-image";
 
 type GalleryImage = {
   uri: string;
+  headers?: Record<string, string>;
 };
 
 export default function useSharedPhotoGallery(photos: SharedMediaItem[]) {
@@ -33,8 +34,27 @@ export default function useSharedPhotoGallery(photos: SharedMediaItem[]) {
 
             // ---------- NOT ENCRYPTED ----------
             if (!photo.isMediaEncrypted) {
+              /**
+               * PHASE E — STEP 5
+               *
+               * R2-backed message media is served through the authenticated
+               * backend media endpoint.
+               *
+               * Do not manually concatenate API_BASE_URL here.
+               * The central media resolver also preserves legacy
+               * /uploads/messages/... references.
+               */
+              const source = await getAuthenticatedMediaSource(photo.mediaUrl);
+
+              if (!source) {
+                return {
+                  uri: "",
+                };
+              }
+
               return {
-                uri: `${API_BASE_URL}${photo.mediaUrl}`,
+                uri: source.uri,
+                headers: source.headers,
               };
             }
 
@@ -86,14 +106,16 @@ export default function useSharedPhotoGallery(photos: SharedMediaItem[]) {
     };
   }, [photos, getCachedMedia]);
 
-  useEffect(() => {
-    if (images.length === 0) {
-      return;
-    }
-
-    Image.prefetch(images.map((image) => image.uri));
-  }, [images]);
-
+  /**
+   * PHASE E — STEP 5
+   *
+   * Do not prefetch private R2 URLs as plain strings because that would
+   * omit the Authorization header.
+   *
+   * Encrypted media is already local at this point.
+   * Unencrypted remote media is loaded by ImageViewing using the
+   * authenticated source object above.
+   */
   return {
     images,
     loading,

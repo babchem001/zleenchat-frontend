@@ -61,6 +61,7 @@ import { useAuthStore } from "@/src/store/auth/authStorage";
 import { Message } from "@/src/types/chat.types";
 import { useUploadQueueStore } from "@/src/store/chat/uploadQueueStore";
 import GroupMessageMedia from "@/components/chat/GroupMessageMedia";
+import { getMediaUrl } from "@/src/utils/mediaReference";
 
 const isSameCalendarDay = (dateA: string | Date, dateB: string | Date) => {
   const a = new Date(dateA);
@@ -1911,14 +1912,12 @@ export default function GroupChatScreen() {
     return "SENT";
   };
 
+  // PHASE E — STEP 5:
+  // Use the central media-reference resolver instead of constructing
+  // backend media URLs locally. This keeps legacy references compatible
+  // while allowing canonical backend references to be resolved consistently.
   const resolveMediaUrl = (mediaUrl?: string | null) => {
-    if (!mediaUrl) {
-      return null;
-    }
-
-    return mediaUrl.startsWith("http")
-      ? mediaUrl
-      : `${API_BASE_URL}${mediaUrl}`;
+    return getMediaUrl(mediaUrl);
   };
 
   const getInitial = (username?: string) => {

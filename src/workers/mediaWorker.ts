@@ -3,19 +3,25 @@ import NetInfo from "@react-native-community/netinfo";
 import { processMediaFile } from "../store/chat/mediaProcessingQueue";
 import { useUploadQueueStore } from "../store/chat/uploadQueueStore";
 import { useAuthStore } from "../store/auth/authStorage";
+
 import {
   uploadMessageFile,
   uploadThumbnail,
+  finalizeChunkUpload,
 } from "../services/chat/mediaService";
+
+import { deleteFileIfExists } from "../services/chat/mediaCleanup";
 
 import { sendMessage } from "../services/chat/chatService";
 import { sendGroupMessage } from "../services/group/groupMessageService";
 
 export const processWorkerJob = async (clientId: string) => {
   const authState = useAuthStore.getState();
+
   if (!authState.isHydrated || !authState.isAuthenticated) {
     return;
   }
+
   const uploadStore = useUploadQueueStore.getState();
 
   const message = uploadStore.queuedMessages.find(
@@ -38,7 +44,10 @@ export const processWorkerJob = async (clientId: string) => {
       clientId,
     });
 
-    // Re-read the message because processMediaFile may update the queue.
+    /*
+     * Re-read the message because processMediaFile may update
+     * the queue with the processed/compressed media information.
+     */
     const processedMessage = useUploadQueueStore
       .getState()
       .queuedMessages.find((msg) => msg.clientId === clientId);
@@ -47,6 +56,14 @@ export const processWorkerJob = async (clientId: string) => {
       return;
     }
 
+    /*
+     * ============================================================
+     * TEXT MESSAGE
+     *
+     * Text messages do not use the chunked-upload flow.
+     * ============================================================
+     */
+
     if (
       processedMessage.contentType === "TEXT" &&
       processedMessage.type === "DIRECT"
@@ -54,9 +71,9 @@ export const processWorkerJob = async (clientId: string) => {
       await sendMessage(processedMessage.receiverId!, {
         clientId,
         messageContent: processedMessage.messageContent,
+
         contentType: "TEXT",
 
-        // Required by SendMessagePayload.
         isForwarded: false,
       });
 
@@ -70,7 +87,37 @@ export const processWorkerJob = async (clientId: string) => {
       return;
     }
 
+    /*
+     * ============================================================
+     * PHASE D — STEP 7
+     *
+     * Track server upload sessions and their corresponding
+     * local files.
+     *
+     * IMPORTANT:
+     *
+     * These files must NOT be deleted until:
+     *
+     *   1. R2 persistence succeeds
+     *   2. Database Message/reference succeeds
+     *   3. Server-side /upload/finalize succeeds
+     * ============================================================
+     */
+
     let uploadedThumbnailData: any = null;
+    let uploadedFileData: any = null;
+
+    let mediaUploadSessionId: string | null = null;
+    let thumbnailUploadSessionId: string | null = null;
+
+    let localMediaSourceUri: string | null = null;
+    let localThumbnailSourceUri: string | null = null;
+
+    /*
+     * ============================================================
+     * THUMBNAIL UPLOAD
+     * ============================================================
+     */
 
     if (
       processedMessage.contentType !== "FILE" &&
@@ -79,9 +126,12 @@ export const processWorkerJob = async (clientId: string) => {
       uploadedThumbnailData = await uploadThumbnail(
         processedMessage.thumbnailUri,
       );
-    }
 
-    let uploadedFileData: any = null;
+      thumbnailUploadSessionId = uploadedThumbnailData?.uploadSessionId || null;
+
+      localThumbnailSourceUri =
+        uploadedThumbnailData?.localSourceUri || processedMessage.thumbnailUri;
+    }
 
     if (processedMessage.localUri) {
       uploadedFileData = await uploadMessageFile({
@@ -111,6 +161,13 @@ export const processWorkerJob = async (clientId: string) => {
           });
         },
       });
+
+      mediaUploadSessionId = uploadedFileData?.uploadSessionId || null;
+
+      localMediaSourceUri =
+        uploadedFileData?.localSourceUri ||
+        processedMessage.compressedUri ||
+        processedMessage.localUri;
     }
 
     const contentType =
@@ -166,12 +223,9 @@ export const processWorkerJob = async (clientId: string) => {
     } else {
       const directMessagePayload = {
         ...mediaPayload,
-
         isForwarded: false,
         videoWidth: mediaPayload.mediaWidth,
         videoHeight: mediaPayload.mediaHeight,
-
-        // Keep the original field names expected by chatService.
         processedWidth: mediaPayload.processedWidth,
         processedHeight: mediaPayload.processedHeight,
         orientation: mediaPayload.orientation,
@@ -185,7 +239,47 @@ export const processWorkerJob = async (clientId: string) => {
 
       await sendMessage(processedMessage.receiverId!, directMessagePayload);
     }
+    let thumbnailServerCleanupSucceeded = true;
+    let mediaServerCleanupSucceeded = true;
 
+    if (thumbnailUploadSessionId) {
+      try {
+        await finalizeChunkUpload(thumbnailUploadSessionId);
+
+        thumbnailServerCleanupSucceeded = true;
+      } catch (cleanupError) {
+        thumbnailServerCleanupSucceeded = false;
+
+        console.error("THUMBNAIL SERVER CLEANUP ERROR:", cleanupError);
+      }
+    }
+
+    if (mediaUploadSessionId) {
+      try {
+        await finalizeChunkUpload(mediaUploadSessionId);
+
+        mediaServerCleanupSucceeded = true;
+      } catch (cleanupError) {
+        mediaServerCleanupSucceeded = false;
+
+        console.error("MEDIA SERVER CLEANUP ERROR:", cleanupError);
+      }
+    }
+
+    if (localThumbnailSourceUri && thumbnailServerCleanupSucceeded) {
+      await deleteFileIfExists(localThumbnailSourceUri);
+    }
+
+    if (localMediaSourceUri && mediaServerCleanupSucceeded) {
+      await deleteFileIfExists(localMediaSourceUri);
+    }
+    if (
+      processedMessage.compressedUri &&
+      processedMessage.compressedUri !== localMediaSourceUri &&
+      mediaServerCleanupSucceeded
+    ) {
+      await deleteFileIfExists(processedMessage.compressedUri);
+    }
     uploadStore.updateQueuedMessage(clientId, {
       uploadStatus: "SENT",
       uploadProgress: 100,
@@ -194,7 +288,6 @@ export const processWorkerJob = async (clientId: string) => {
     uploadStore.removeQueuedMessage(clientId);
   } catch (error) {
     console.log("MEDIA WORKER ERROR:", error);
-
     useUploadQueueStore.getState().updateQueuedMessage(clientId, {
       uploadStatus: "FAILED",
       uploadProgress: 0,
@@ -204,13 +297,14 @@ export const processWorkerJob = async (clientId: string) => {
 
 export const processPendingJobs = async () => {
   const authState = useAuthStore.getState();
+
   if (!authState.isHydrated || !authState.isAuthenticated) {
     return;
   }
+
   try {
     const network = await NetInfo.fetch();
 
-    // No internet connection.
     if (!network.isConnected) {
       return;
     }

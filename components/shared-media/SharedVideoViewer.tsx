@@ -166,6 +166,7 @@ export default function SharedVideoViewer({
                 {item.uri ? (
                   <SharedVideoPage
                     uri={item.uri}
+                    headers={item.headers}
                     active={index === currentIndex}
                   />
                 ) : (

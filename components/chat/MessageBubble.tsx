@@ -1,4 +1,3 @@
-import { API_BASE_URL } from "@/src/services/api/apiClient";
 import React, { useState, useEffect } from "react";
 import { Audio } from "expo-av";
 import {
@@ -15,6 +14,10 @@ import { Image } from "expo-image";
 
 import { Message } from "@/src/types/chat.types";
 import { decryptRemoteMedia } from "@/src/utils/mediaPipeline";
+import {
+  getAuthenticatedMediaSource,
+  getMediaUrl,
+} from "@/src/utils/mediaReference";
 import { useMediaCacheStore } from "@/src/store/chat/mediaCacheStore";
 import ImageViewerModal from "../media/ImageViewerModal";
 import VideoViewerModal from "../media/VideoViewerModal";
@@ -57,6 +60,19 @@ const MessageBubbleComponent: React.FC<Props> = ({
   const [showVideoViewer, setShowVideoViewer] = useState(false);
   const [showAudioViewer, setShowAudioViewer] = useState(false);
   const [thumbnailLoading, setThumbnailLoading] = useState(true);
+
+  // PHASE E — STEP 5: Private R2 media sources require the bearer token.
+  const [authenticatedMediaSource, setAuthenticatedMediaSource] = useState<{
+    uri: string;
+    headers?: Record<string, string>;
+  } | null>(null);
+
+  const [authenticatedThumbnailSource, setAuthenticatedThumbnailSource] =
+    useState<{
+      uri: string;
+      headers?: Record<string, string>;
+    } | null>(null);
+
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
@@ -341,13 +357,13 @@ const MessageBubbleComponent: React.FC<Props> = ({
 
   const getCachedMedia = useMediaCacheStore((state) => state.getCachedMedia);
 
-  const mediaUrl = message.mediaUrl
-    ? `${API_BASE_URL}${message.mediaUrl}`
-    : null;
+  // PHASE E — STEP 5:
+  // Backend message references are now resolved centrally.
+  const mediaUrl = getMediaUrl(message.mediaUrl);
 
   const displayMedia =
     message.uploadStatus === "UPLOADING" || message.uploadStatus === "FAILED"
-      ? message.localUri || message.mediaUrl || null
+      ? message.localUri || mediaUrl || null
       : decryptedUri || mediaUrl;
 
   const fileMeta = message.fileSize
@@ -356,6 +372,94 @@ const MessageBubbleComponent: React.FC<Props> = ({
         Math.round(Number(message.fileSize) / 1024),
       )} KB`
     : getFileExtension();
+
+  // ============================================================
+  // PHASE E — STEP 5: AUTHENTICATED R2 MEDIA SOURCE
+  //
+  // React Native media components do not automatically inherit the
+  // Authorization header used by the app's API client. The backend
+  // /messages/media endpoint is private, so unencrypted message media
+  // must be resolved into a URI + bearer-token header before rendering.
+  // ============================================================
+  useEffect(() => {
+    let mounted = true;
+
+    const resolveMedia = async () => {
+      if (
+        !message.mediaUrl ||
+        message.isMediaEncrypted ||
+        message.uploadStatus === "UPLOADING" ||
+        message.uploadStatus === "FAILED" ||
+        message.deletedForAll
+      ) {
+        if (mounted) {
+          setAuthenticatedMediaSource(null);
+        }
+
+        return;
+      }
+
+      try {
+        const source = await getAuthenticatedMediaSource(message.mediaUrl);
+
+        if (mounted) {
+          setAuthenticatedMediaSource(source);
+        }
+      } catch (error) {
+        console.log("MEDIA SOURCE RESOLUTION ERROR:", error);
+
+        if (mounted) {
+          setAuthenticatedMediaSource(null);
+        }
+      }
+    };
+
+    resolveMedia();
+
+    return () => {
+      mounted = false;
+    };
+  }, [
+    message.mediaUrl,
+    message.isMediaEncrypted,
+    message.uploadStatus,
+    message.deletedForAll,
+  ]);
+
+  // PHASE E — STEP 5: Resolve private R2 thumbnails with authentication.
+  useEffect(() => {
+    let mounted = true;
+
+    const resolveThumbnail = async () => {
+      if (!message.thumbnailUrl || message.deletedForAll) {
+        if (mounted) {
+          setAuthenticatedThumbnailSource(null);
+        }
+
+        return;
+      }
+
+      try {
+        const source = await getAuthenticatedMediaSource(message.thumbnailUrl);
+
+        if (mounted) {
+          setAuthenticatedThumbnailSource(source);
+        }
+      } catch (error) {
+        console.log("THUMBNAIL SOURCE RESOLUTION ERROR:", error);
+
+        if (mounted) {
+          setAuthenticatedThumbnailSource(null);
+        }
+      }
+    };
+
+    resolveThumbnail();
+
+    return () => {
+      mounted = false;
+    };
+  }, [message.thumbnailUrl, message.deletedForAll]);
 
   useEffect(() => {
     let mounted = true;
@@ -454,6 +558,40 @@ const MessageBubbleComponent: React.FC<Props> = ({
     }
   };
 
+  // PHASE E — STEP 5:
+  // Download private, unencrypted R2 files to a local cache before opening
+  // them with the document-sharing helper, which expects a local file URI.
+  const downloadProtectedFile = async (): Promise<string | null> => {
+    if (!authenticatedMediaSource?.uri) {
+      return null;
+    }
+
+    const extension =
+      message.fileName?.split(".").pop()?.toLowerCase() || "file";
+    const targetUri = `${FileSystem.cacheDirectory}message-${message.id}.${extension}`;
+
+    try {
+      const existing = await FileSystem.getInfoAsync(targetUri);
+
+      if (existing.exists) {
+        return targetUri;
+      }
+
+      const result = await FileSystem.downloadAsync(
+        authenticatedMediaSource.uri,
+        targetUri,
+        authenticatedMediaSource.headers
+          ? { headers: authenticatedMediaSource.headers }
+          : undefined,
+      );
+
+      return result.uri;
+    } catch (error) {
+      console.log("PROTECTED FILE DOWNLOAD ERROR:", error);
+      return null;
+    }
+  };
+
   const playPauseAudio = async () => {
     try {
       let playableUri = displayMedia;
@@ -492,8 +630,12 @@ const MessageBubbleComponent: React.FC<Props> = ({
       }
 
       if (!sound) {
+        const playbackSource = message.isMediaEncrypted
+          ? { uri: playableUri }
+          : authenticatedMediaSource || { uri: playableUri };
+
         const { sound: newSound } = await Audio.Sound.createAsync(
-          { uri: playableUri },
+          playbackSource,
           { shouldPlay: true },
         );
 
@@ -874,7 +1016,11 @@ const MessageBubbleComponent: React.FC<Props> = ({
                     onPress={() => setShowImageViewer(true)}
                   >
                     <Image
-                      source={displayMedia}
+                      source={
+                        message.isMediaEncrypted
+                          ? displayMedia
+                          : authenticatedMediaSource || undefined
+                      }
                       style={[
                         styles.image,
                         {
@@ -949,9 +1095,11 @@ const MessageBubbleComponent: React.FC<Props> = ({
                     ]}
                   >
                     {(() => {
-                      const thumbnailSource = message.thumbnailUrl
-                        ? `${API_BASE_URL}${message.thumbnailUrl}`
-                        : message.thumbnailUri || message.localUri;
+                      const thumbnailSource =
+                        authenticatedThumbnailSource ||
+                        message.thumbnailUri ||
+                        message.localUri ||
+                        undefined;
 
                       return (
                         <Image
@@ -1119,18 +1267,28 @@ const MessageBubbleComponent: React.FC<Props> = ({
                   ]}
                   onPress={async () => {
                     try {
-                      let documentPath = displayMedia;
+                      let documentPath: string | null = null;
 
                       if (message.isMediaEncrypted) {
+                        documentPath = decryptedUri;
+
                         const fileInfo = documentPath
                           ? await FileSystem.getInfoAsync(documentPath)
                           : { exists: false };
 
                         if (!fileInfo.exists) {
+                          if (
+                            !message.mediaUrl ||
+                            !message.encryptedMediaKey ||
+                            !message.mediaKeyIV
+                          ) {
+                            return;
+                          }
+
                           const decrypted = await decryptRemoteMedia({
-                            mediaUrl: message.mediaUrl!,
-                            encryptedMediaKey: message.encryptedMediaKey!,
-                            mediaKeyIV: message.mediaKeyIV!,
+                            mediaUrl: message.mediaUrl,
+                            encryptedMediaKey: message.encryptedMediaKey,
+                            mediaKeyIV: message.mediaKeyIV,
                             mediaKeyAuthTag: message.mediaKeyAuthTag,
                             mimeType: message.mimeType,
                             fileName: message.fileName,
@@ -1140,6 +1298,8 @@ const MessageBubbleComponent: React.FC<Props> = ({
 
                           documentPath = decrypted;
                         }
+                      } else {
+                        documentPath = await downloadProtectedFile();
                       }
 
                       if (!documentPath) {
@@ -1204,12 +1364,22 @@ const MessageBubbleComponent: React.FC<Props> = ({
       <ImageViewerModal
         visible={showImageViewer}
         imageUri={displayMedia || ""}
+        imageHeaders={
+          message.isMediaEncrypted
+            ? undefined
+            : authenticatedMediaSource?.headers
+        }
         onClose={() => setShowImageViewer(false)}
       />
 
       <VideoViewerModal
         visible={showVideoViewer}
         videoUri={displayMedia || ""}
+        videoHeaders={
+          message.isMediaEncrypted
+            ? undefined
+            : authenticatedMediaSource?.headers
+        }
         onClose={() => setShowVideoViewer(false)}
       />
     </View>
@@ -1233,6 +1403,10 @@ export default React.memo(MessageBubbleComponent, (prev, next) => {
     prev.message.forwardedFromMessageId ===
       next.message.forwardedFromMessageId &&
     prev.message.mediaUrl === next.message.mediaUrl &&
+    prev.message.thumbnailUrl === next.message.thumbnailUrl &&
+    prev.message.isMediaEncrypted === next.message.isMediaEncrypted &&
+    prev.message.encryptedMediaKey === next.message.encryptedMediaKey &&
+    prev.message.mediaKeyIV === next.message.mediaKeyIV &&
     prev.searchQuery === next.searchQuery &&
     prev.isActiveSearchMatch === next.isActiveSearchMatch &&
     prev.message.replyToId === next.message.replyToId &&

@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 
 import { SharedMediaItem } from "@/src/services/chat/sharedMediaService";
-import { API_BASE_URL } from "@/src/services/api/apiClient";
 import { decryptRemoteMedia } from "@/src/utils/mediaPipeline";
 import { useMediaCacheStore } from "@/src/store/chat/mediaCacheStore";
+import { getAuthenticatedMediaSource } from "@/src/utils/mediaReference";
 
 export type SharedVideoSource = {
   uri: string;
+  headers?: Record<string, string>;
 };
 
 export default function useSharedVideoGallery(
@@ -14,6 +15,7 @@ export default function useSharedVideoGallery(
   currentIndex: number,
 ) {
   const getCachedMedia = useMediaCacheStore((state) => state.getCachedMedia);
+
   const cacheMedia = useMediaCacheStore((state) => state.cacheMedia);
 
   const [sources, setSources] = useState<SharedVideoSource[]>(
@@ -48,7 +50,10 @@ export default function useSharedVideoGallery(
           currentIndex + 1,
         ].filter((index) => index >= 0 && index < videos.length);
 
+        // ---------------------------------------------------------
+        // PHASE E — STEP 5
         // First populate non-encrypted and already-cached videos.
+        // ---------------------------------------------------------
         if (mounted) {
           setSources((previous) => {
             const updated = [...previous];
@@ -60,20 +65,29 @@ export default function useSharedVideoGallery(
                 continue;
               }
 
-              // Already loaded
+              // Already loaded.
               if (updated[index]?.uri) {
                 continue;
               }
 
-              // Normal (not encrypted)
+              // ---------------------------------------------------
+              // Normal / unencrypted R2 media.
+              //
+              // IMPORTANT:
+              // Do not manually construct:
+              //
+              // `${API_BASE_URL}${video.mediaUrl}`
+              //
+              // because the private media endpoint requires the
+              // Authorization header.
+              //
+              // We resolve this asynchronously below.
+              // ---------------------------------------------------
               if (!video.isMediaEncrypted) {
-                updated[index] = {
-                  uri: `${API_BASE_URL}${video.mediaUrl}`,
-                };
                 continue;
               }
 
-              // Already decrypted and cached
+              // Already decrypted and cached.
               const cached = getCachedMedia(video.mediaUrl);
 
               if (cached) {
@@ -87,7 +101,46 @@ export default function useSharedVideoGallery(
           });
         }
 
-        // Decrypt only the encrypted videos that are still missing.
+        // ---------------------------------------------------------
+        // PHASE E — STEP 5
+        // Resolve unencrypted remote videos through the
+        // authenticated R2 media endpoint.
+        // ---------------------------------------------------------
+        for (const index of indexes) {
+          const video = videos[index];
+
+          if (!video?.mediaUrl || video.isMediaEncrypted) {
+            continue;
+          }
+
+          try {
+            const source = await getAuthenticatedMediaSource(video.mediaUrl);
+
+            if (!source) {
+              continue;
+            }
+
+            if (mounted) {
+              setSources((previous) => {
+                const updated = [...previous];
+
+                updated[index] = {
+                  uri: source.uri,
+                  headers: source.headers,
+                };
+
+                return updated;
+              });
+            }
+          } catch (error) {
+            console.log("Shared video media source error:", error);
+          }
+        }
+
+        // ---------------------------------------------------------
+        // PHASE E — STEP 5
+        // Decrypt only encrypted videos that are still missing.
+        // ---------------------------------------------------------
         for (const index of indexes) {
           const video = videos[index];
 
@@ -98,6 +151,18 @@ export default function useSharedVideoGallery(
           const cached = getCachedMedia(video.mediaUrl);
 
           if (cached) {
+            if (mounted) {
+              setSources((previous) => {
+                const updated = [...previous];
+
+                updated[index] = {
+                  uri: cached,
+                };
+
+                return updated;
+              });
+            }
+
             continue;
           }
 
