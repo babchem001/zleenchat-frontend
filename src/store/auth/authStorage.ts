@@ -7,11 +7,17 @@ import {
   getToken,
   removeToken,
 } from "@/src/services/storage/tokenService";
+
 import {
   loginUser,
   logoutUser,
   validateSession,
 } from "@/src/services/auth/authService";
+
+import {
+  useMediaCacheStore,
+  waitForMediaCacheHydration,
+} from "@/src/store/chat/mediaCacheStore";
 
 type User = {
   sub: number;
@@ -38,6 +44,7 @@ type AuthState = {
 const STORAGE_TIMEOUT_MS = 3000;
 const SESSION_VALIDATION_TIMEOUT_MS = 3000;
 const RETRY_DELAY_MS = 250;
+
 const withTimeout = <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
   return Promise.race([
     promise,
@@ -54,7 +61,9 @@ const getStoredTokenWithRetry = async (): Promise<string | null> => {
     return await withTimeout(getToken(), STORAGE_TIMEOUT_MS);
   } catch (error) {
     console.warn("AUTH STORAGE FIRST READ FAILED:", error);
+
     await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+
     return await withTimeout(getToken(), STORAGE_TIMEOUT_MS);
   }
 };
@@ -88,6 +97,7 @@ const validateStoredSession = async (
       };
     } catch (error: any) {
       const status = error?.response?.status;
+
       if (status === 401 || status === 403) {
         return {
           status: "invalid",
@@ -107,9 +117,20 @@ const validateStoredSession = async (
   if (firstAttempt.status !== "unavailable") {
     return firstAttempt;
   }
+
   await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
 
   return await attempt();
+};
+
+// Clears decrypted private media belonging to a previous session.
+const clearCachedPrivateMedia = async (): Promise<void> => {
+  try {
+    await waitForMediaCacheHydration();
+    await useMediaCacheStore.getState().clearCache();
+  } catch (error) {
+    console.error("PRIVATE MEDIA CACHE CLEANUP ERROR:", error);
+  }
 };
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -120,9 +141,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   // LOGIN
   login: async (email, password) => {
+    // Prevent a new account from inheriting another account's cached media.
+    await clearCachedPrivateMedia();
+
     const response = await loginUser(email, password);
     const token = response.access_token;
+
     await saveToken(token);
+
     const decoded: User = jwtDecode<User>(token);
 
     set({
@@ -141,6 +167,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       console.error("LOGOUT REQUEST ERROR:", error);
     } finally {
       await removeToken();
+      await clearCachedPrivateMedia();
 
       set({
         user: null,
@@ -160,7 +187,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const token = await getStoredTokenWithRetry();
 
+      // No stored session: clear any cached private media.
       if (!token) {
+        await clearCachedPrivateMedia();
+
         set({
           user: null,
           token: null,
@@ -179,6 +209,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         console.warn("INVALID STORED JWT:", error);
 
         await removeToken();
+        await clearCachedPrivateMedia();
 
         set({
           user: null,
@@ -189,10 +220,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         return;
       }
+
+      // Expired session.
       if (isJwtExpired(decoded)) {
         console.warn("STORED JWT HAS EXPIRED");
 
         await removeToken();
+        await clearCachedPrivateMedia();
 
         set({
           user: null,
@@ -223,12 +257,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (canValidateOnline) {
         const validation = await validateStoredSession(token);
 
+        // Server confirms that the session is invalid.
         if (validation.status === "invalid") {
           console.warn(
             "STORED SESSION IS NO LONGER VALID. CLEARING LOCAL SESSION.",
           );
 
           await removeToken();
+          await clearCachedPrivateMedia();
 
           set({
             user: null,
@@ -247,6 +283,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           };
         }
       }
+
+      // Valid session, or server temporarily unavailable.
       set({
         token,
         user: decoded,
@@ -261,6 +299,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       } catch (removeError) {
         console.error("FAILED TO REMOVE INVALID TOKEN:", removeError);
       }
+
+      await clearCachedPrivateMedia();
 
       set({
         user: null,

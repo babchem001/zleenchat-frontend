@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+import { secureDeleteFile } from "@/src/services/chat/secureDelete";
+
 export type MediaCacheEntry = {
   remoteUrl: string;
   localUri: string;
@@ -9,6 +11,10 @@ export type MediaCacheEntry = {
 };
 
 type MediaCacheState = {
+  // ================= HYDRATION =================
+  hasHydrated: boolean;
+  setHasHydrated: (value: boolean) => void;
+
   // ================= MEDIA =================
   mediaCache: Record<string, MediaCacheEntry>;
   cacheMedia: (remoteUrl: string, localUri: string) => void;
@@ -22,15 +28,18 @@ type MediaCacheState = {
   removeCachedThumbnail: (thumbnailUrl: string) => void;
 
   // ================= GLOBAL =================
-
-  clearCache: () => void;
+  clearCache: () => Promise<void>;
 };
 
 export const useMediaCacheStore = create<MediaCacheState>()(
   persist(
     (set, get) => ({
-      // ================= MEDIA =================
+      // ================= HYDRATION =================
+      hasHydrated: false,
 
+      setHasHydrated: (value) => set({ hasHydrated: value }),
+
+      // ================= MEDIA =================
       mediaCache: {},
 
       cacheMedia: (remoteUrl, localUri) =>
@@ -47,29 +56,18 @@ export const useMediaCacheStore = create<MediaCacheState>()(
 
       getCachedMedia: (remoteUrl) => {
         const entry = get().mediaCache[remoteUrl];
-
-        if (!entry?.localUri) {
-          return null;
-        }
-
         return entry?.localUri || null;
       },
 
       removeCachedMedia: (remoteUrl) =>
         set((state) => {
-          const updated = {
-            ...state.mediaCache,
-          };
-
+          const updated = { ...state.mediaCache };
           delete updated[remoteUrl];
 
-          return {
-            mediaCache: updated,
-          };
+          return { mediaCache: updated };
         }),
 
       // ================= THUMBNAILS =================
-
       thumbnailCache: {},
 
       cacheThumbnail: (thumbnailUrl, localUri) =>
@@ -86,36 +84,66 @@ export const useMediaCacheStore = create<MediaCacheState>()(
 
       getCachedThumbnail: (thumbnailUrl) => {
         const entry = get().thumbnailCache[thumbnailUrl];
-
         return entry?.localUri || null;
       },
 
       removeCachedThumbnail: (thumbnailUrl) =>
         set((state) => {
-          const updated = {
-            ...state.thumbnailCache,
-          };
-
+          const updated = { ...state.thumbnailCache };
           delete updated[thumbnailUrl];
 
-          return {
-            thumbnailCache: updated,
-          };
+          return { thumbnailCache: updated };
         }),
 
       // ================= CLEAR =================
+      clearCache: async () => {
+        const state = get();
 
-      clearCache: () =>
+        const cachedFiles = new Set([
+          ...Object.values(state.mediaCache).map((entry) => entry.localUri),
+          ...Object.values(state.thumbnailCache).map((entry) => entry.localUri),
+        ]);
+
+        await Promise.all([...cachedFiles].map((uri) => secureDeleteFile(uri)));
+
         set({
           mediaCache: {},
           thumbnailCache: {},
-        }),
+        });
+      },
     }),
-
     {
       name: "media-cache-storage",
-
       storage: createJSONStorage(() => AsyncStorage),
+
+      onRehydrateStorage: () => (_state, error) => {
+        if (error) {
+          console.error("Error rehydrating media cache:", error);
+        }
+        useMediaCacheStore.getState().setHasHydrated(true);
+      },
     },
   ),
 );
+
+// Wait until persisted cache metadata has been restored.
+export const waitForMediaCacheHydration = async (): Promise<void> => {
+  if (useMediaCacheStore.getState().hasHydrated) {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    const unsubscribe = useMediaCacheStore.subscribe((state) => {
+      if (state.hasHydrated) {
+        unsubscribe();
+        resolve();
+      }
+    });
+
+    // Recheck after subscribing to avoid missing a hydration completion.
+    if (useMediaCacheStore.getState().hasHydrated) {
+      unsubscribe();
+      resolve();
+    }
+  });
+};
