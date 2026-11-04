@@ -32,6 +32,7 @@ import {
   getDirectDraftKey,
   getGroupDraftKey,
 } from "@/src/store/chat/draftStore";
+import Avatar from "@/src/components/common/Avatar";
 
 const ACCENT = "#2563EB";
 
@@ -355,9 +356,9 @@ export default function ChatListScreen() {
   const renderItem = ({ item }: { item: Conversation }) => {
     const name = item.user?.profile?.username || "Unknown";
 
-    const avatarUri = item.user?.profile?.avatarUrl
-      ? `${API_BASE_URL}${item.user.profile.avatarUrl}`
-      : null;
+    // const avatarUri = item.user?.profile?.avatarUrl
+    //   ? `${API_BASE_URL}${item.user.profile.avatarUrl}`
+    //   : null;
 
     const draftKey =
       currentUserId != null
@@ -404,15 +405,7 @@ export default function ChatListScreen() {
             ==================================================== */}
 
         <View style={styles.avatarContainer}>
-          {avatarUri ? (
-            <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
-          ) : (
-            <View style={styles.avatarFallback}>
-              <Text style={styles.avatarText}>
-                {name.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          )}
+          <Avatar uri={item.user?.profile?.avatarUrl} name={name} size={50} />
         </View>
 
         {/* ====================================================
@@ -631,20 +624,12 @@ export default function ChatListScreen() {
       ) : (
         <View style={styles.header}>
           <View style={styles.headerLeft}>
-            {myProfile?.avatarUrl ? (
-              <Image
-                source={{
-                  uri: `${API_BASE_URL}${myProfile.avatarUrl}`,
-                }}
-                style={styles.headerAvatar}
-              />
-            ) : (
-              <View style={styles.headerAvatarFallback}>
-                <Text style={styles.headerAvatarLetter}>
-                  {myProfile?.username?.charAt(0).toUpperCase() ?? "U"}
-                </Text>
-              </View>
-            )}
+            <Avatar
+              uri={myProfile?.avatarUrl}
+              name={myProfile?.username || currentUser?.username || "User"}
+              size={42}
+              containerStyle={styles.headerAvatar}
+            />
 
             <View
               style={[

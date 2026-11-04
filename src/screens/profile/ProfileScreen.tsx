@@ -24,6 +24,7 @@ import { getToken } from "@/src/services/storage/tokenService";
 import AppFeedbackModal, {
   FeedbackType,
 } from "@/src/components/AppFeedbackModal";
+import Avatar from "@/src/components/common/Avatar";
 
 type Profile = {
   id: number;
@@ -79,15 +80,30 @@ export default function ProfileScreen() {
     }));
   };
 
+  /*
+   * Fetch Profile.
+   */
   const fetchProfile = useCallback(async () => {
     try {
       const token = await getToken();
+
+      if (!token) {
+        throw new Error("Authentication token not found.");
+      }
 
       const res = await fetch(`${API_BASE_URL}/profile/me`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+
+        throw new Error(
+          errorData?.message || "Unable to retrieve your profile.",
+        );
+      }
 
       const data = await res.json();
 
@@ -112,6 +128,10 @@ export default function ProfileScreen() {
   const handleUpdateBio = async () => {
     try {
       const token = await getToken();
+
+      if (!token) {
+        throw new Error("Authentication token not found.");
+      }
 
       const response = await fetch(`${API_BASE_URL}/profile/me`, {
         method: "PUT",
@@ -195,6 +215,10 @@ export default function ProfileScreen() {
 
       const token = await getToken();
 
+      if (!token) {
+        throw new Error("Authentication token not found.");
+      }
+
       const formData = new FormData();
 
       formData.append("avatar", {
@@ -255,6 +279,10 @@ export default function ProfileScreen() {
     try {
       const token = await getToken();
 
+      if (!token) {
+        throw new Error("Authentication token not found.");
+      }
+
       const response = await fetch(`${API_BASE_URL}/profile/delete-avatar`, {
         method: "DELETE",
         headers: {
@@ -296,6 +324,19 @@ export default function ProfileScreen() {
     if (!profile?.avatarUrl) return;
 
     try {
+      // Retrieve the authentication token.
+      const token = await getToken();
+
+      if (!token) {
+        showFeedback(
+          "error",
+          "Authentication Required",
+          "Your session could not be verified. Please sign in again.",
+        );
+
+        return;
+      }
+
       const { status } = await MediaLibrary.requestPermissionsAsync();
 
       if (status !== "granted") {
@@ -308,11 +349,23 @@ export default function ProfileScreen() {
         return;
       }
 
+      // avatarUrl is now the authenticated API reference returned by the backend.
       const fileUrl = `${API_BASE_URL}${profile.avatarUrl}`;
 
       const fileUri = (FileSystem as any).documentDirectory + "avatar.jpg";
 
-      const downloadResult = await FileSystem.downloadAsync(fileUrl, fileUri);
+      // Download the private avatar using the Bearer token.
+      const downloadResult = await FileSystem.downloadAsync(fileUrl, fileUri, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (downloadResult.status < 200 || downloadResult.status >= 300) {
+        throw new Error(
+          `Avatar download failed with status ${downloadResult.status}.`,
+        );
+      }
 
       const asset = await MediaLibrary.createAssetAsync(downloadResult.uri);
 
@@ -361,9 +414,7 @@ export default function ProfileScreen() {
 
         <Text style={styles.emptyTitle}>Profile unavailable</Text>
 
-        <Text style={styles.emptySubtitle}>
-          We couldn&apos;t load your profile.
-        </Text>
+        <Text style={styles.emptySubtitle}>We couldn't load your profile.</Text>
 
         <AppFeedbackModal
           visible={feedback.visible}
@@ -415,19 +466,14 @@ export default function ProfileScreen() {
           >
             {selectedImage ? (
               <Image source={{ uri: selectedImage }} style={styles.avatar} />
-            ) : profile.avatarUrl ? (
-              <Image
-                source={{
-                  uri: `${API_BASE_URL}${profile.avatarUrl}`,
-                }}
-                style={styles.avatar}
-              />
             ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarPlaceholderText}>
-                  {profile.username.charAt(0).toUpperCase()}
-                </Text>
-              </View>
+              <Avatar
+                uri={profile.avatarUrl}
+                name={profile.username}
+                size={118}
+                fallbackStyle={styles.avatarPlaceholder}
+                textStyle={styles.avatarPlaceholderText}
+              />
             )}
 
             <TouchableOpacity style={styles.cameraButton} onPress={pickImage}>
@@ -441,6 +487,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* Email */}
+
         {profile?.user?.email ? (
           <View style={styles.card}>
             <Text style={styles.cardLabel}>Email</Text>
@@ -449,6 +496,7 @@ export default function ProfileScreen() {
         ) : null}
 
         {/* About */}
+
         <View style={styles.card}>
           <Text style={styles.cardLabel}>About</Text>
 
@@ -517,14 +565,13 @@ export default function ProfileScreen() {
 
           {selectedImage ? (
             <Image source={{ uri: selectedImage }} style={styles.fullImage} />
-          ) : profile.avatarUrl ? (
-            <Image
-              source={{
-                uri: `${API_BASE_URL}${profile.avatarUrl}`,
-              }}
-              style={styles.fullImage}
+          ) : (
+            <Avatar
+              uri={profile.avatarUrl}
+              name={profile.username}
+              size={280}
             />
-          ) : null}
+          )}
 
           {profile.avatarUrl && (
             <TouchableOpacity
