@@ -411,7 +411,16 @@ export default function ChatScreen() {
   const [hasSearched, setHasSearched] = useState(false);
 
   const queuedCount = queuedMessages.filter(
-    (msg) => msg.receiverId === parsedUserId,
+    (msg) =>
+      msg.receiverId === parsedUserId &&
+      [
+        "QUEUED",
+        "PROCESSING",
+        "COMPRESSING",
+        "GENERATING_THUMBNAIL",
+        "READY",
+        "UPLOADING",
+      ].includes(msg.uploadStatus || ""),
   ).length;
 
   const avatarUri = chatUser?.profile?.avatarUrl

@@ -286,8 +286,17 @@ export const processWorkerJob = async (clientId: string) => {
     });
 
     uploadStore.removeQueuedMessage(clientId);
-  } catch (error) {
-    console.log("MEDIA WORKER ERROR:", error);
+  } catch (error: any) {
+    console.error("MEDIA WORKER ERROR:", {
+      message: error?.message,
+      code: error?.code,
+      status: error?.response?.status,
+      responseData: error?.response?.data,
+      url: error?.config?.url,
+      method: error?.config?.method,
+      stack: error?.stack,
+    });
+
     useUploadQueueStore.getState().updateQueuedMessage(clientId, {
       uploadStatus: "FAILED",
       uploadProgress: 0,
