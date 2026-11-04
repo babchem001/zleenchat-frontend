@@ -79,14 +79,26 @@ export const uploadMessageFile = async ({
       aesKey,
     });
 
-    await apiClient.post("/messages/upload/chunk", {
-      uploadSessionId,
-      chunkIndex,
-      totalChunks,
-      chunk: encryptedChunkData.encryptedChunk,
-      iv: encryptedChunkData.iv,
-      // authTag: encryptedChunkData.authTag,
-    });
+    try {
+      await apiClient.post("/messages/upload/chunk", {
+        uploadSessionId,
+        chunkIndex,
+        totalChunks,
+        chunk: encryptedChunkData.encryptedChunk,
+        iv: encryptedChunkData.iv,
+      });
+    } catch (error: any) {
+      console.error("CHUNK UPLOAD REQUEST FAILED:", {
+        status: error?.response?.status,
+        responseData: error?.response?.data,
+        uploadSessionId,
+        chunkIndex,
+        totalChunks,
+        message: error?.message,
+      });
+
+      throw error;
+    }
     uploadedBytes += end - start;
 
     const overallProgress = Math.round(
