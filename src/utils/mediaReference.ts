@@ -3,17 +3,24 @@ import { getToken } from "@/src/services/storage/tokenService";
 
 const isLocalMediaUri = (value: string) =>
   value.startsWith("file://") || value.startsWith("content://");
+
 const isHttpUrl = (value: string) => /^https?:\/\//i.test(value);
+
+const isRawR2MessageKey = (value: string) =>
+  /^messages\/(?:images|videos|audio|files|thumbnails)\/message-/i.test(value);
+
 const isPrivateMessageReference = (reference: string) => {
   const value = reference.trim();
 
-  if (
-    /^messages\/(?:images|videos|audio|files|thumbnails)\/message-/i.test(value)
-  ) {
+  if (isRawR2MessageKey(value)) {
     return true;
   }
 
-  if (value.startsWith("/uploads/messages/")) {
+  if (
+    value.startsWith("/messages/media?") ||
+    value.startsWith("messages/media?") ||
+    value.startsWith("/uploads/messages/")
+  ) {
     return true;
   }
 
@@ -21,18 +28,21 @@ const isPrivateMessageReference = (reference: string) => {
     try {
       const url = new URL(value);
       const apiBase = new URL(API_BASE_URL);
+
       return (
-        url.origin === apiBase.origin && url.pathname === "/messages/media"
+        url.origin === apiBase.origin &&
+        (url.pathname === "/messages/media" ||
+          url.pathname.startsWith("/uploads/messages/"))
       );
     } catch {
       return false;
     }
   }
+
   return false;
 };
-// Convert a backend media reference into an absolute URL. Backend message references may be: absolute URLs, backend-relative URLs such as /messages/media?key=...
-// .legacy /uploads/messages/... paths.  local file:// URIs used while a message is uploading
 
+// Convert a backend media reference into an absolute URL.
 export const getMediaUrl = (reference?: string | null): string | null => {
   if (!reference) {
     return null;
@@ -48,42 +58,59 @@ export const getMediaUrl = (reference?: string | null): string | null => {
     return value;
   }
 
+  // Convert canonical R2 object keys into the backend media endpoint.
+  if (isRawR2MessageKey(value)) {
+    return `${API_BASE_URL}/messages/media?key=${encodeURIComponent(value)}`;
+  }
+
   return `${API_BASE_URL}${value.startsWith("/") ? "" : "/"}${value}`;
 };
 
-// Build an authenticated source object for React Native media components. This is required because Image/video/audio components do not use the Axios API interceptor automatically.
+// Build an authenticated source object for React Native media components.
 export const getAuthenticatedMediaSource = async (
   reference?: string | null,
 ) => {
   if (!reference) {
     return null;
   }
+
   const value = reference.trim();
+
   if (!value) {
     return null;
   }
 
+  // Local files do not require authentication.
   if (isLocalMediaUri(value)) {
     return {
       uri: value,
     };
   }
+
+  // Public external URLs do not require backend authentication.
   if (isHttpUrl(value) && !isPrivateMessageReference(value)) {
     return {
       uri: value,
     };
   }
-  // Private Zleenchat message media must go through th authenticated backend media endpoint
-  const uri = isPrivateMessageReference(value)
-    ? isHttpUrl(value)
+
+  let uri: string;
+
+  if (isRawR2MessageKey(value)) {
+    uri = `${API_BASE_URL}/messages/media?key=${encodeURIComponent(value)}`;
+  } else if (isPrivateMessageReference(value)) {
+    uri = isHttpUrl(value)
       ? value
-      : `${API_BASE_URL}${value.startsWith("/") ? "" : "/"}${value}`
-    : getMediaUrl(value);
+      : `${API_BASE_URL}${value.startsWith("/") ? "" : "/"}${value}`;
+  } else {
+    uri = getMediaUrl(value)!;
+  }
 
   if (!uri) {
     return null;
   }
 
+  // Attach authentication to private media requests.
   if (!isPrivateMessageReference(value)) {
     return {
       uri,

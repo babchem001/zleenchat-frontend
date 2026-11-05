@@ -576,32 +576,38 @@ export default function ChatScreen() {
   };
 
   // ================= QUEUED MESSAGES =================
+  const currentConversationQueuedMessages = queuedMessages.filter(
+    (queuedMsg) =>
+      queuedMsg.type === "DIRECT" &&
+      Number(queuedMsg.senderId) === currentUserId &&
+      Number(queuedMsg.receiverId) === parsedUserId,
+  );
 
   useEffect(() => {
-    if (!queuedMessages.length) return;
-
-    const completedDirectMessages = queuedMessages.filter(
-      (queuedMsg) =>
-        queuedMsg.type === "DIRECT" &&
-        queuedMsg.uploadStatus === "SENT" &&
-        Number(queuedMsg.id) > 0,
-    );
+    if (!currentConversationQueuedMessages.length) return;
 
     setMessages((prev) => {
       const merged = [...prev];
 
-      queuedMessages.forEach((queuedMsg) => {
+      currentConversationQueuedMessages.forEach((queuedMsg) => {
         const normalizedQueuedMessage =
           normalizeForwardedLinkMessage(queuedMsg);
 
-        const existingIndex = merged.findIndex(
-          (msg) => msg.clientId === queuedMsg.clientId,
+        const isPersistedMessage =
+          queuedMsg.uploadStatus === "SENT" && Number(queuedMsg.id) > 0;
+
+        // First match by clientId to find the optimistic message.
+        let existingIndex = merged.findIndex(
+          (msg) => !!queuedMsg.clientId && msg.clientId === queuedMsg.clientId,
         );
 
-        const isPersistedMessage =
-          queuedMsg.type === "DIRECT" &&
-          queuedMsg.uploadStatus === "SENT" &&
-          Number(queuedMsg.id) > 0;
+        // If the socket event already inserted the persisted message,
+        // match by its database ID to avoid creating a duplicate.
+        if (existingIndex === -1 && isPersistedMessage) {
+          existingIndex = merged.findIndex(
+            (msg) => Number(msg.id) === Number(queuedMsg.id),
+          );
+        }
 
         if (existingIndex !== -1) {
           const existingMessage = merged[existingIndex];
@@ -618,27 +624,20 @@ export default function ChatScreen() {
               uploadProgress: 100,
             };
           } else {
-            // Keep the visible optimistic message synchronized
-            // with the latest upload progress.
+            // Keep the optimistic message synchronized with
+            // the latest upload and processing progress.
             merged[existingIndex] = {
               ...existingMessage,
               ...queuedMsg,
             };
           }
         } else {
+          // Add the queued message if it is not already visible.
           merged.push(normalizedQueuedMessage);
         }
       });
 
       return hydrateReplyReferences(merged);
-    });
-
-    // The persisted message has now been handed to ChatScreen's
-    // message-state reconciliation. Remove its queue entry.
-    completedDirectMessages.forEach((message) => {
-      if (message.clientId) {
-        removeQueuedMessage(message.clientId);
-      }
     });
 
     requestAnimationFrame(() => {
@@ -648,7 +647,32 @@ export default function ChatScreen() {
         });
       }
     });
-  }, [queuedMessages, removeQueuedMessage]);
+  }, [currentConversationQueuedMessages, currentUserId, parsedUserId]);
+
+  // ================= REMOVE RECONCILED QUEUED MESSAGES =================
+
+  useEffect(() => {
+    const completedMessages = currentConversationQueuedMessages.filter(
+      (queuedMsg) =>
+        queuedMsg.uploadStatus === "SENT" &&
+        Number(queuedMsg.id) > 0 &&
+        !!queuedMsg.clientId,
+    );
+
+    if (!completedMessages.length) return;
+
+    completedMessages.forEach((queuedMsg) => {
+      const alreadyReconciled = messages.some(
+        (msg) =>
+          Number(msg.id) === Number(queuedMsg.id) &&
+          msg.clientId === queuedMsg.clientId,
+      );
+
+      if (alreadyReconciled) {
+        removeQueuedMessage(queuedMsg.clientId!);
+      }
+    });
+  }, [currentConversationQueuedMessages, messages, removeQueuedMessage]);
 
   // ================= RETRY PENDING =================
 

@@ -32,6 +32,8 @@ export const processWorkerJob = async (clientId: string) => {
     return;
   }
 
+  let messagePersisted = false;
+
   try {
     uploadStore.updateQueuedMessage(clientId, {
       uploadStatus: "UPLOADING",
@@ -46,7 +48,7 @@ export const processWorkerJob = async (clientId: string) => {
 
     /*
      * Re-read the message because processMediaFile may update
-     * the queue with the processed/compressed media information.
+     * the queue with processed/compressed media information.
      */
     const processedMessage = useUploadQueueStore
       .getState()
@@ -71,9 +73,7 @@ export const processWorkerJob = async (clientId: string) => {
       await sendMessage(processedMessage.receiverId!, {
         clientId,
         messageContent: processedMessage.messageContent,
-
         contentType: "TEXT",
-
         isForwarded: false,
       });
 
@@ -94,13 +94,11 @@ export const processWorkerJob = async (clientId: string) => {
      * Track server upload sessions and their corresponding
      * local files.
      *
-     * IMPORTANT:
+     * Local files must not be deleted until:
      *
-     * These files must NOT be deleted until:
-     *
-     *   1. R2 persistence succeeds
-     *   2. Database Message/reference succeeds
-     *   3. Server-side /upload/finalize succeeds
+     * 1. R2 persistence succeeds.
+     * 2. Database message/reference creation succeeds.
+     * 3. Server-side upload finalization is attempted.
      * ============================================================
      */
 
@@ -132,6 +130,12 @@ export const processWorkerJob = async (clientId: string) => {
       localThumbnailSourceUri =
         uploadedThumbnailData?.localSourceUri || processedMessage.thumbnailUri;
     }
+
+    /*
+     * ============================================================
+     * ORIGINAL MEDIA UPLOAD
+     * ============================================================
+     */
 
     if (processedMessage.localUri) {
       uploadedFileData = await uploadMessageFile({
@@ -170,6 +174,12 @@ export const processWorkerJob = async (clientId: string) => {
         processedMessage.localUri;
     }
 
+    /*
+     * ============================================================
+     * BUILD MEDIA MESSAGE PAYLOAD
+     * ============================================================
+     */
+
     const contentType =
       uploadedFileData?.contentType || processedMessage.contentType;
 
@@ -177,81 +187,167 @@ export const processWorkerJob = async (clientId: string) => {
       clientId,
       messageContent: processedMessage.messageContent || "",
       contentType,
+
       mediaUrl: uploadedFileData?.mediaUrl || null,
+
       fileName: uploadedFileData?.fileName || processedMessage.fileName || null,
+
       mimeType: uploadedFileData?.mimeType || processedMessage.mimeType || null,
+
       fileSize: uploadedFileData?.fileSize ?? processedMessage.fileSize ?? null,
+
       encryptedMediaKey: uploadedFileData?.encryptedMediaKey ?? null,
+
       mediaIV: uploadedFileData?.mediaIV ?? null,
+
       mediaAuthTag: uploadedFileData?.mediaAuthTag ?? null,
+
       isMediaEncrypted:
         uploadedFileData?.isMediaEncrypted ??
         processedMessage.isMediaEncrypted ??
         false,
+
       mediaKeyIV: uploadedFileData?.mediaKeyIV ?? null,
+
       mediaKeyAuthTag: uploadedFileData?.mediaKeyAuthTag ?? null,
+
       duration: processedMessage.duration ?? null,
+
       waveform: processedMessage.waveform ?? null,
+
       mediaWidth: processedMessage.videoWidth ?? null,
+
       mediaHeight: processedMessage.videoHeight ?? null,
+
       processedWidth: processedMessage.processedWidth ?? null,
+
       processedHeight: processedMessage.processedHeight ?? null,
+
       orientation: processedMessage.orientation ?? null,
+
       bitrate: processedMessage.bitrate ?? null,
+
       thumbnailUrl: uploadedThumbnailData?.thumbnailUrl ?? null,
+
       thumbnailSize:
         uploadedThumbnailData?.thumbnailSize ??
         processedMessage.thumbnailSize ??
         null,
+
       encryptedThumbnailKey:
         uploadedThumbnailData?.encryptedThumbnailKey ??
         processedMessage.encryptedThumbnailKey ??
         null,
+
       thumbnailIV:
         uploadedThumbnailData?.thumbnailIV ??
         processedMessage.thumbnailIV ??
         null,
+
       thumbnailAuthTag:
         uploadedThumbnailData?.thumbnailAuthTag ??
         processedMessage.thumbnailAuthTag ??
         null,
+
       replyToId: processedMessage.replyToId ?? null,
     };
 
-    let persistedDirectMessage: any = null;
+    /*
+     * ============================================================
+     * SEND MESSAGE
+     * ============================================================
+     */
 
     if (processedMessage.type === "GROUP") {
       await sendGroupMessage(Number(processedMessage.groupId), mediaPayload);
+
+      messagePersisted = true;
     } else {
       const directMessagePayload = {
         ...mediaPayload,
+
         isForwarded: false,
+
         videoWidth: mediaPayload.mediaWidth,
         videoHeight: mediaPayload.mediaHeight,
+
         processedWidth: mediaPayload.processedWidth,
         processedHeight: mediaPayload.processedHeight,
+
         orientation: mediaPayload.orientation,
         bitrate: mediaPayload.bitrate,
+
         thumbnailUrl: mediaPayload.thumbnailUrl,
         thumbnailSize: mediaPayload.thumbnailSize,
+
         encryptedThumbnailKey: mediaPayload.encryptedThumbnailKey,
+
         thumbnailIV: mediaPayload.thumbnailIV,
+
         thumbnailAuthTag: mediaPayload.thumbnailAuthTag,
       };
 
-      await sendMessage(processedMessage.receiverId!, directMessagePayload);
+      /*
+       * The API response is the authoritative persisted message.
+       *
+       * Some API service implementations return response.data,
+       * while others expose the response object. Support both.
+       */
+      const sendResponse = await sendMessage(
+        processedMessage.receiverId!,
+        directMessagePayload,
+      );
+
+      const persistedMessage = sendResponse?.data ?? sendResponse;
+
+      if (
+        !persistedMessage ||
+        !Number.isInteger(Number(persistedMessage.id)) ||
+        Number(persistedMessage.id) <= 0
+      ) {
+        throw new Error(
+          "Media message response did not contain a valid persisted message ID.",
+        );
+      }
+
+      messagePersisted = true;
+
+      /*
+       * Publish the server-persisted message to the shared queue.
+       *
+       * Keep the original clientId so ChatScreen can replace
+       * the optimistic message instead of adding a duplicate.
+       *
+       * Keep type and receiverId explicitly because the server
+       * response may not include these local queue properties.
+       */
+      useUploadQueueStore.getState().updateQueuedMessage(clientId, {
+        ...persistedMessage,
+
+        id: persistedMessage.id,
+
+        clientId,
+
+        type: processedMessage.type,
+
+        receiverId: processedMessage.receiverId,
+
+        uploadStatus: "SENT",
+
+        uploadProgress: 100,
+      });
     }
-    let thumbnailServerCleanupSucceeded = true;
-    let mediaServerCleanupSucceeded = true;
+
+    /*
+     * ============================================================
+     * SERVER UPLOAD SESSION FINALIZATION
+     * ============================================================
+     */
 
     if (thumbnailUploadSessionId) {
       try {
         await finalizeChunkUpload(thumbnailUploadSessionId);
-
-        thumbnailServerCleanupSucceeded = true;
       } catch (cleanupError) {
-        thumbnailServerCleanupSucceeded = false;
-
         console.error("THUMBNAIL SERVER CLEANUP ERROR:", cleanupError);
       }
     }
@@ -259,29 +355,59 @@ export const processWorkerJob = async (clientId: string) => {
     if (mediaUploadSessionId) {
       try {
         await finalizeChunkUpload(mediaUploadSessionId);
-
-        mediaServerCleanupSucceeded = true;
       } catch (cleanupError) {
-        mediaServerCleanupSucceeded = false;
-
         console.error("MEDIA SERVER CLEANUP ERROR:", cleanupError);
       }
     }
 
-    if (localThumbnailSourceUri && thumbnailServerCleanupSucceeded) {
-      await deleteFileIfExists(localThumbnailSourceUri);
+    /*
+     * ============================================================
+     * LOCAL FILE CLEANUP
+     *
+     * A local cleanup failure must not turn a successfully
+     * persisted message into a failed message.
+     * ============================================================
+     */
+
+    if (localThumbnailSourceUri) {
+      try {
+        await deleteFileIfExists(localThumbnailSourceUri);
+      } catch (cleanupError) {
+        console.error("LOCAL THUMBNAIL CLEANUP ERROR:", cleanupError);
+      }
     }
 
-    if (localMediaSourceUri && mediaServerCleanupSucceeded) {
-      await deleteFileIfExists(localMediaSourceUri);
+    if (localMediaSourceUri) {
+      try {
+        await deleteFileIfExists(localMediaSourceUri);
+      } catch (cleanupError) {
+        console.error("LOCAL MEDIA CLEANUP ERROR:", cleanupError);
+      }
     }
+
     if (
       processedMessage.compressedUri &&
-      processedMessage.compressedUri !== localMediaSourceUri &&
-      mediaServerCleanupSucceeded
+      processedMessage.compressedUri !== localMediaSourceUri
     ) {
-      await deleteFileIfExists(processedMessage.compressedUri);
+      try {
+        await deleteFileIfExists(processedMessage.compressedUri);
+      } catch (cleanupError) {
+        console.error("COMPRESSED MEDIA CLEANUP ERROR:", cleanupError);
+      }
     }
+
+    /*
+     * ============================================================
+     * QUEUE CLEANUP
+     *
+     * Group messages retain their existing cleanup behaviour.
+     *
+     * Direct media messages remain in the shared queue until
+     * ChatScreen reconciles the persisted message into its
+     * visible message list.
+     * ============================================================
+     */
+
     if (processedMessage.type === "GROUP") {
       uploadStore.updateQueuedMessage(clientId, {
         uploadStatus: "SENT",
@@ -301,10 +427,16 @@ export const processWorkerJob = async (clientId: string) => {
       stack: error?.stack,
     });
 
-    useUploadQueueStore.getState().updateQueuedMessage(clientId, {
-      uploadStatus: "FAILED",
-      uploadProgress: 0,
-    });
+    /*
+     * Do not mark an already-persisted message as failed.
+     * Its database record already exists.
+     */
+    if (!messagePersisted) {
+      useUploadQueueStore.getState().updateQueuedMessage(clientId, {
+        uploadStatus: "FAILED",
+        uploadProgress: 0,
+      });
+    }
   }
 };
 
