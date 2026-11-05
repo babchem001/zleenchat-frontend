@@ -580,22 +580,75 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!queuedMessages.length) return;
 
+    const completedDirectMessages = queuedMessages.filter(
+      (queuedMsg) =>
+        queuedMsg.type === "DIRECT" &&
+        queuedMsg.uploadStatus === "SENT" &&
+        Number(queuedMsg.id) > 0,
+    );
+
     setMessages((prev) => {
       const merged = [...prev];
 
       queuedMessages.forEach((queuedMsg) => {
-        const exists = merged.some(
+        const normalizedQueuedMessage =
+          normalizeForwardedLinkMessage(queuedMsg);
+
+        const existingIndex = merged.findIndex(
           (msg) => msg.clientId === queuedMsg.clientId,
         );
 
-        if (!exists) {
-          merged.push(queuedMsg);
+        const isPersistedMessage =
+          queuedMsg.type === "DIRECT" &&
+          queuedMsg.uploadStatus === "SENT" &&
+          Number(queuedMsg.id) > 0;
+
+        if (existingIndex !== -1) {
+          const existingMessage = merged[existingIndex];
+
+          if (isPersistedMessage) {
+            merged[existingIndex] = {
+              ...mergePersistedMessage(
+                existingMessage,
+                normalizedQueuedMessage,
+                merged,
+              ),
+              clientId: queuedMsg.clientId,
+              uploadStatus: "SENT",
+              uploadProgress: 100,
+            };
+          } else {
+            // Keep the visible optimistic message synchronized
+            // with the latest upload progress.
+            merged[existingIndex] = {
+              ...existingMessage,
+              ...queuedMsg,
+            };
+          }
+        } else {
+          merged.push(normalizedQueuedMessage);
         }
       });
 
-      return merged;
+      return hydrateReplyReferences(merged);
     });
-  }, [queuedMessages]);
+
+    // The persisted message has now been handed to ChatScreen's
+    // message-state reconciliation. Remove its queue entry.
+    completedDirectMessages.forEach((message) => {
+      if (message.clientId) {
+        removeQueuedMessage(message.clientId);
+      }
+    });
+
+    requestAnimationFrame(() => {
+      if (isNearBottomRef.current) {
+        flatListRef.current?.scrollToEnd({
+          animated: true,
+        });
+      }
+    });
+  }, [queuedMessages, removeQueuedMessage]);
 
   // ================= RETRY PENDING =================
 

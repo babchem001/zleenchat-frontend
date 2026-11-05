@@ -218,6 +218,8 @@ export const processWorkerJob = async (clientId: string) => {
       replyToId: processedMessage.replyToId ?? null,
     };
 
+    let persistedDirectMessage: any = null;
+
     if (processedMessage.type === "GROUP") {
       await sendGroupMessage(Number(processedMessage.groupId), mediaPayload);
     } else {
@@ -280,12 +282,14 @@ export const processWorkerJob = async (clientId: string) => {
     ) {
       await deleteFileIfExists(processedMessage.compressedUri);
     }
-    uploadStore.updateQueuedMessage(clientId, {
-      uploadStatus: "SENT",
-      uploadProgress: 100,
-    });
+    if (processedMessage.type === "GROUP") {
+      uploadStore.updateQueuedMessage(clientId, {
+        uploadStatus: "SENT",
+        uploadProgress: 100,
+      });
 
-    uploadStore.removeQueuedMessage(clientId);
+      uploadStore.removeQueuedMessage(clientId);
+    }
   } catch (error: any) {
     console.error("MEDIA WORKER ERROR:", {
       message: error?.message,
