@@ -193,12 +193,26 @@ export const uploadThumbnail = async (thumbnailUri: string) => {
 
     const chunk = base64File.slice(start, end);
 
-    await apiClient.post("/messages/upload/chunk", {
-      uploadSessionId,
-      chunkIndex,
-      totalChunks,
-      chunk,
-    });
+    try {
+      await apiClient.post("/messages/upload/chunk", {
+        uploadSessionId,
+        chunkIndex,
+        totalChunks,
+        chunk,
+      });
+    } catch (error: any) {
+      console.error("[THUMBNAIL UPLOAD] CHUNK REQUEST FAILED:", {
+        status: error?.response?.status,
+        responseData: error?.response?.data,
+        message: error?.message,
+        uploadSessionId,
+        chunkIndex,
+        totalChunks,
+        chunkLength: chunk?.length,
+      });
+
+      throw error;
+    }
   }
 
   // ================= COMPLETE UPLOAD =================
