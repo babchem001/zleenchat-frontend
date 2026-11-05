@@ -1,18 +1,15 @@
 import apiClient from "../api/apiClient";
 import * as FileSystem from "expo-file-system/legacy";
 
-const CHUNK_SIZE = 1024 * 1024;
-
 import { generateMediaKey } from "@/src/utils/mediaEncryption";
 import { encryptChunk } from "@/src/utils/chunkEncryption";
 import { encryptMediaKey } from "@/src/utils/mediaKeyEncryption";
-import { deleteFileIfExists } from "./mediaCleanup";
+
+const CHUNK_SIZE = 1024 * 1024;
 
 type UploadOptions = {
   file: any;
-
   onProgress?: (progress: number) => void;
-
   onChunkProgress?: (uploadedChunks: number, totalChunks: number) => void;
 };
 
@@ -21,8 +18,6 @@ export const uploadMessageFile = async ({
   onProgress,
   onChunkProgress,
 }: UploadOptions) => {
-  // FILE INFO: Read the local source before starting the upload session
-  // so the backend knows exactly how many chunks must arrive.
   const fileInfo = await FileSystem.getInfoAsync(file.uri);
 
   if (!fileInfo.exists) {
@@ -34,6 +29,10 @@ export const uploadMessageFile = async ({
   });
 
   const totalChunks = Math.ceil(base64File.length / CHUNK_SIZE);
+
+  if (totalChunks <= 0) {
+    throw new Error("File contains no uploadable data");
+  }
 
   // ================= CREATE SESSION =================
 
@@ -64,22 +63,23 @@ export const uploadMessageFile = async ({
 
   // Generate AES key.
   const aesKey = await generateMediaKey();
-
   const encryptedKeyData = await encryptMediaKey(aesKey);
 
   // ================= CHUNK LOOP =================
 
   for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
     if (uploadedChunks.includes(chunkIndex)) {
-      uploadedBytes += CHUNK_SIZE;
+      uploadedBytes += Math.min(
+        CHUNK_SIZE,
+        base64File.length - chunkIndex * CHUNK_SIZE,
+      );
 
       const recoveredProgress = Math.min(
-        Math.round((uploadedBytes * 100) / file.size),
+        Math.round((uploadedBytes * 100) / base64File.length),
         100,
       );
 
       onProgress?.(recoveredProgress);
-
       onChunkProgress?.(chunkIndex + 1, totalChunks);
 
       continue;
@@ -123,25 +123,20 @@ export const uploadMessageFile = async ({
     );
 
     onProgress?.(overallProgress);
-
     onChunkProgress?.(chunkIndex + 1, totalChunks);
   }
 
-  // ================= FINALIZE =================
+  // ================= COMPLETE UPLOAD =================
 
   const finalizeResponse = await apiClient.post("/messages/upload/complete", {
     uploadSessionId,
   });
 
-  base64File = ""; // Clear from memory.
+  base64File = "";
 
   return {
     ...finalizeResponse.data,
-
-    // Keep this so the worker knows which server-side upload
-    // must be finalized after the database write succeeds.
     uploadSessionId,
-
     encryptedMediaKey: encryptedKeyData.encryptedKey,
     mediaKeyIV: encryptedKeyData.keyIV,
     mediaIV: null,
@@ -150,14 +145,10 @@ export const uploadMessageFile = async ({
   };
 };
 
+// ================= THUMBNAIL UPLOAD =================
+
 export const uploadThumbnail = async (thumbnailUri: string) => {
-  // ================= FILE INFO =================
-
   const fileInfo = await FileSystem.getInfoAsync(thumbnailUri);
-
-  const base64 = await FileSystem.readAsStringAsync(thumbnailUri, {
-    encoding: "base64",
-  });
 
   if (!fileInfo.exists) {
     throw new Error("Thumbnail does not exist");
@@ -165,25 +156,30 @@ export const uploadThumbnail = async (thumbnailUri: string) => {
 
   const thumbnailSize = "size" in fileInfo ? fileInfo.size : 0;
 
-  // ================= START SESSION =================
-
-  const startResponse = await apiClient.post("/messages/upload/start", {
-    uploadType: "THUMBNAIL",
-    fileName: `thumb-${Date.now()}.png`,
-    mimeType: "image/png",
-    fileSize: thumbnailSize,
-    clientId: `thumb-${Date.now()}`,
-  });
-
-  const { uploadSessionId, uploadedChunks } = startResponse.data;
-
-  // ================= READ FILE =================
-
-  let base64File = await FileSystem.readAsStringAsync(thumbnailUri, {
+  const base64File = await FileSystem.readAsStringAsync(thumbnailUri, {
     encoding: "base64",
   });
 
   const totalChunks = Math.ceil(base64File.length / CHUNK_SIZE);
+
+  if (totalChunks <= 0) {
+    throw new Error("Thumbnail contains no uploadable data");
+  }
+
+  const clientId = `thumb-${Date.now()}`;
+
+  // ================= START SESSION =================
+
+  const startResponse = await apiClient.post("/messages/upload/start", {
+    uploadType: "THUMBNAIL",
+    fileName: `${clientId}.png`,
+    mimeType: "image/png",
+    fileSize: thumbnailSize,
+    clientId,
+    totalChunks,
+  });
+
+  const { uploadSessionId, uploadedChunks } = startResponse.data;
 
   // ================= CHUNK LOOP =================
 
@@ -205,22 +201,20 @@ export const uploadThumbnail = async (thumbnailUri: string) => {
     });
   }
 
-  // ================= COMPLETE =================
+  // ================= COMPLETE UPLOAD =================
 
   const completeResponse = await apiClient.post("/messages/upload/complete", {
     uploadSessionId,
   });
 
-  base64File = "";
-
   return {
     ...completeResponse.data,
     uploadSessionId,
-
-    // Preserve the local source until DB success.
     localSourceUri: thumbnailUri,
   };
 };
+
+// ================= FINALIZE UPLOAD =================
 
 export const finalizeChunkUpload = async (uploadSessionId: string) => {
   if (!uploadSessionId) {
