@@ -1,6 +1,8 @@
 import apiClient from "../api/apiClient";
 import * as FileSystem from "expo-file-system/legacy";
+
 const CHUNK_SIZE = 1024 * 1024;
+
 import { generateMediaKey } from "@/src/utils/mediaEncryption";
 import { encryptChunk } from "@/src/utils/chunkEncryption";
 import { encryptMediaKey } from "@/src/utils/mediaKeyEncryption";
@@ -19,38 +21,51 @@ export const uploadMessageFile = async ({
   onProgress,
   onChunkProgress,
 }: UploadOptions) => {
-  //FILE INFO: Read the local source before starting the upload session so the backend knows exactly how many chunks must arrive.
+  // FILE INFO: Read the local source before starting the upload session
+  // so the backend knows exactly how many chunks must arrive.
   const fileInfo = await FileSystem.getInfoAsync(file.uri);
 
   if (!fileInfo.exists) {
     throw new Error("File does not exist");
   }
+
   let base64File = await FileSystem.readAsStringAsync(file.uri, {
     encoding: "base64",
   });
+
   const totalChunks = Math.ceil(base64File.length / CHUNK_SIZE);
 
   // ================= CREATE SESSION =================
 
-  const startUploadResponse = await apiClient.post("/messages/upload/start", {
-    clientId: file.clientId,
-    fileName: file.name,
-    mimeType: file.mimeType,
-    fileSize: file.size,
-    totalChunks,
-  });
+  let startUploadResponse;
+
+  try {
+    startUploadResponse = await apiClient.post("/messages/upload/start", {
+      clientId: file.clientId,
+      fileName: file.name,
+      mimeType: file.mimeType,
+      fileSize: file.size,
+      totalChunks,
+    });
+  } catch (error: any) {
+    console.error("UPLOAD START REQUEST FAILED:", {
+      status: error?.response?.status,
+      responseData: error?.response?.data,
+      message: error?.message,
+      requestData: error?.config?.data,
+    });
+
+    throw error;
+  }
 
   const { uploadSessionId, uploadedChunks } = startUploadResponse.data;
+
   let uploadedBytes = 0;
 
-  //Generate aes key
+  // Generate AES key.
   const aesKey = await generateMediaKey();
 
   const encryptedKeyData = await encryptMediaKey(aesKey);
-  // Read file
-  // let base64File = await FileSystem.readAsStringAsync(file.uri, {
-  //   encoding: "base64",
-  // });
 
   // ================= CHUNK LOOP =================
 
@@ -74,6 +89,7 @@ export const uploadMessageFile = async ({
     const end = Math.min(start + CHUNK_SIZE, base64File.length);
 
     const rawChunk = base64File.slice(start, end);
+
     const encryptedChunkData = await encryptChunk({
       chunkBase64: rawChunk,
       aesKey,
@@ -99,6 +115,7 @@ export const uploadMessageFile = async ({
 
       throw error;
     }
+
     uploadedBytes += end - start;
 
     const overallProgress = Math.round(
@@ -106,20 +123,25 @@ export const uploadMessageFile = async ({
     );
 
     onProgress?.(overallProgress);
+
     onChunkProgress?.(chunkIndex + 1, totalChunks);
   }
 
-  // FINALIZE
+  // ================= FINALIZE =================
+
   const finalizeResponse = await apiClient.post("/messages/upload/complete", {
     uploadSessionId,
   });
 
-  base64File = ""; // Clear from memory
+  base64File = ""; // Clear from memory.
 
   return {
     ...finalizeResponse.data,
-    // Keep this so the worker knows which server-side upload must be finalized after the database write succeeds.
+
+    // Keep this so the worker knows which server-side upload
+    // must be finalized after the database write succeeds.
     uploadSessionId,
+
     encryptedMediaKey: encryptedKeyData.encryptedKey,
     mediaKeyIV: encryptedKeyData.keyIV,
     mediaIV: null,
@@ -160,6 +182,7 @@ export const uploadThumbnail = async (thumbnailUri: string) => {
   let base64File = await FileSystem.readAsStringAsync(thumbnailUri, {
     encoding: "base64",
   });
+
   const totalChunks = Math.ceil(base64File.length / CHUNK_SIZE);
 
   // ================= CHUNK LOOP =================
@@ -171,7 +194,9 @@ export const uploadThumbnail = async (thumbnailUri: string) => {
 
     const start = chunkIndex * CHUNK_SIZE;
     const end = Math.min(start + CHUNK_SIZE, base64File.length);
+
     const chunk = base64File.slice(start, end);
+
     await apiClient.post("/messages/upload/chunk", {
       uploadSessionId,
       chunkIndex,
@@ -180,15 +205,18 @@ export const uploadThumbnail = async (thumbnailUri: string) => {
     });
   }
 
-  // COMPLETE
+  // ================= COMPLETE =================
+
   const completeResponse = await apiClient.post("/messages/upload/complete", {
     uploadSessionId,
   });
 
   base64File = "";
+
   return {
     ...completeResponse.data,
     uploadSessionId,
+
     // Preserve the local source until DB success.
     localSourceUri: thumbnailUri,
   };
