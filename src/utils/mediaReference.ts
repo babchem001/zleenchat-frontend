@@ -54,13 +54,29 @@ export const getMediaUrl = (reference?: string | null): string | null => {
     return null;
   }
 
-  if (isLocalMediaUri(value) || isHttpUrl(value)) {
+  if (isLocalMediaUri(value)) {
     return value;
   }
 
-  // Convert canonical R2 object keys into the backend media endpoint.
-  if (isRawR2MessageKey(value)) {
+  // Already an absolute URL.
+  if (isHttpUrl(value)) {
+    return value;
+  }
+
+  // Canonical private R2 object keys must use the backend
+  // authenticated media endpoint, not a direct object-key route.
+  if (
+    /^messages\/(?:images|videos|audio|files|thumbnails)\/message-/i.test(value)
+  ) {
     return `${API_BASE_URL}/messages/media?key=${encodeURIComponent(value)}`;
+  }
+
+  // Backend-relative media endpoint.
+  if (
+    value.startsWith("/messages/media?") ||
+    value.startsWith("messages/media?")
+  ) {
+    return `${API_BASE_URL}${value.startsWith("/") ? "" : "/"}${value}`;
   }
 
   return `${API_BASE_URL}${value.startsWith("/") ? "" : "/"}${value}`;
