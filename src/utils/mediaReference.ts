@@ -42,6 +42,35 @@ const isPrivateMessageReference = (reference: string) => {
   return false;
 };
 
+const getCanonicalR2MessageKey = (reference: string): string | null => {
+  let value = reference.trim();
+
+  // Convert only URLs from this API host.
+  if (isHttpUrl(value)) {
+    try {
+      const url = new URL(value);
+      const apiOrigin = new URL(API_BASE_URL).origin;
+
+      if (url.origin !== apiOrigin) {
+        return null;
+      }
+
+      value = url.pathname;
+    } catch {
+      return null;
+    }
+  }
+
+  // Accept both "messages/images/..." and "/messages/images/...".
+  const key = value.replace(/^\/+/, "");
+
+  return /^messages\/(?:images|videos|audio|files|thumbnails)\/message-[^/?#]+$/i.test(
+    key,
+  )
+    ? key
+    : null;
+};
+
 // Convert a backend media reference into an absolute URL.
 export const getMediaUrl = (reference?: string | null): string | null => {
   if (!reference) {
@@ -58,17 +87,13 @@ export const getMediaUrl = (reference?: string | null): string | null => {
     return value;
   }
 
+  const r2Key = getCanonicalR2MessageKey(value);
+  if (r2Key) {
+    return `${API_BASE_URL}/messages/media?key=${encodeURIComponent(r2Key)}`;
+  }
   // Already an absolute URL.
   if (isHttpUrl(value)) {
     return value;
-  }
-
-  // Canonical private R2 object keys must use the backend
-  // authenticated media endpoint, not a direct object-key route.
-  if (
-    /^messages\/(?:images|videos|audio|files|thumbnails)\/message-/i.test(value)
-  ) {
-    return `${API_BASE_URL}/messages/media?key=${encodeURIComponent(value)}`;
   }
 
   // Backend-relative media endpoint.
@@ -100,6 +125,25 @@ export const getAuthenticatedMediaSource = async (
   if (isLocalMediaUri(value)) {
     return {
       uri: value,
+    };
+  }
+
+  const r2Key = getCanonicalR2MessageKey(value);
+
+  if (r2Key) {
+    const token = await getToken();
+
+    if (!token) {
+      throw new Error(
+        "Authentication token not found for private media request",
+      );
+    }
+
+    return {
+      uri: `${API_BASE_URL}/messages/media?key=${encodeURIComponent(r2Key)}`,
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
     };
   }
 

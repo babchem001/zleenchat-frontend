@@ -373,6 +373,18 @@ const MessageBubbleComponent: React.FC<Props> = ({
       )} KB`
     : getFileExtension();
 
+  const localImageUri =
+    message.localUri?.startsWith("file://") ||
+    message.localUri?.startsWith("content://")
+      ? message.localUri
+      : null;
+
+  const imageDisplayMedia = message.isMediaEncrypted
+    ? decryptedUri || localImageUri
+    : message.uploadStatus === "SENT"
+      ? mediaUrl
+      : localImageUri || mediaUrl;
+
   // ============================================================
   // PHASE E — STEP 5: AUTHENTICATED R2 MEDIA SOURCE
   //
@@ -1008,18 +1020,22 @@ const MessageBubbleComponent: React.FC<Props> = ({
               </View>
             )}
 
-            {message.contentType === "IMAGE" && displayMedia && (
+            {message.contentType === "IMAGE" && (
               <>
                 <View style={styles.mediaWrapper}>
                   <TouchableOpacity
                     activeOpacity={0.9}
+                    disabled={!imageDisplayMedia}
                     onPress={() => setShowImageViewer(true)}
                   >
                     <Image
                       source={
-                        message.isMediaEncrypted
-                          ? displayMedia
-                          : authenticatedMediaSource || undefined
+                        imageDisplayMedia?.startsWith("file://") ||
+                        imageDisplayMedia?.startsWith("content://")
+                          ? { uri: imageDisplayMedia }
+                          : message.isMediaEncrypted
+                            ? imageDisplayMedia || undefined
+                            : authenticatedMediaSource || undefined
                       }
                       style={[
                         styles.image,
@@ -1363,7 +1379,7 @@ const MessageBubbleComponent: React.FC<Props> = ({
 
       <ImageViewerModal
         visible={showImageViewer}
-        imageUri={displayMedia || ""}
+        imageUri={imageDisplayMedia || ""}
         imageHeaders={
           message.isMediaEncrypted
             ? undefined
