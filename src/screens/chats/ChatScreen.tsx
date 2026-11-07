@@ -576,11 +576,15 @@ export default function ChatScreen() {
   };
 
   // ================= QUEUED MESSAGES =================
-  const currentConversationQueuedMessages = queuedMessages.filter(
-    (queuedMsg) =>
-      queuedMsg.type === "DIRECT" &&
-      Number(queuedMsg.senderId) === currentUserId &&
-      Number(queuedMsg.receiverId) === parsedUserId,
+  const currentConversationQueuedMessages = useMemo(
+    () =>
+      queuedMessages.filter(
+        (queuedMsg) =>
+          queuedMsg.type === "DIRECT" &&
+          Number(queuedMsg.senderId) === currentUserId &&
+          Number(queuedMsg.receiverId) === parsedUserId,
+      ),
+    [queuedMessages, currentUserId, parsedUserId],
   );
 
   useEffect(() => {
