@@ -14,7 +14,10 @@ import {
 import { router, useFocusEffect } from "expo-router";
 import { useState, useCallback, useEffect } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { getConversations } from "@/src/services/chat/chatService";
+import {
+  getConversations,
+  markDirectMessagesAsDelivered,
+} from "@/src/services/chat/chatService";
 import { Conversation } from "@/src/types/chat.types";
 import { useSocket } from "@/hooks/useSocket";
 import { useTypingStore } from "@/src/store/chat/typingStore";
@@ -83,14 +86,41 @@ export default function ChatListScreen() {
       setLoading(true);
 
       const data = await getConversations();
+      const nextChats = data || [];
 
-      setChats(data || []);
+      setChats(nextChats);
+
+      const receiverId = Number(currentUserId);
+
+      if (Number.isInteger(receiverId) && receiverId > 0) {
+        const pendingSenderIds = Array.from(
+          new Set(
+            nextChats
+              .filter(
+                (chat) =>
+                  chat.lastMessageStatus === "SENT" &&
+                  Number(chat.lastMessageSenderId) !== receiverId,
+              )
+              .map((chat) => Number(chat.lastMessageSenderId))
+              .filter((senderId) => Number.isInteger(senderId) && senderId > 0),
+          ),
+        );
+
+        pendingSenderIds.forEach((senderId) => {
+          void markDirectMessagesAsDelivered(senderId).catch((error) => {
+            console.error(
+              "Direct message delivery acknowledgement failed:",
+              error,
+            );
+          });
+        });
+      }
     } catch (error) {
       console.error("Error fetching chats:", error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentUserId]);
 
   const fetchGroups = useCallback(async () => {
     try {
@@ -153,9 +183,13 @@ export default function ChatListScreen() {
     ]),
   );
 
-  useEffect(() => {
-    console.log("ChatListScreen socket:", socketRef.current?.id);
-  }, [connected]);
+ useEffect(() => {
+  if (!connected) {
+    return;
+  }
+
+  fetchChats();
+}, [connected, fetchChats]);
 
   useEffect(() => {
     if (!connected) return;

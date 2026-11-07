@@ -171,3 +171,8 @@ export const markAsRead = async (senderId: number) => {
 
   return response.data;
 };
+
+export const markDirectMessagesAsDelivered = async (senderId: number) => {
+  const response = await apiClient.put(`/messages/delivered/${senderId}`);
+  return response.data;
+};
