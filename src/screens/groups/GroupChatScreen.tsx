@@ -1,4 +1,3 @@
-import { API_BASE_URL } from "@/src/services/api/apiClient";
 import uuid from "react-native-uuid";
 import React, {
   useEffect,
@@ -62,6 +61,7 @@ import { Message } from "@/src/types/chat.types";
 import { useUploadQueueStore } from "@/src/store/chat/uploadQueueStore";
 import GroupMessageMedia from "@/components/chat/GroupMessageMedia";
 import { getMediaUrl } from "@/src/utils/mediaReference";
+import Avatar from "@/src/components/common/Avatar";
 
 const isSameCalendarDay = (dateA: string | Date, dateB: string | Date) => {
   const a = new Date(dateA);
@@ -1920,10 +1920,6 @@ export default function GroupChatScreen() {
     return getMediaUrl(mediaUrl);
   };
 
-  const getInitial = (username?: string) => {
-    return username?.charAt(0)?.toUpperCase() || "U";
-  };
-
   const openMentionMenu = (mention: any) => {
     setSelectedMention(mention);
 
@@ -2556,20 +2552,14 @@ export default function GroupChatScreen() {
             ]}
           >
             {!isMe && (
-              <View style={styles.senderAvatar}>
-                {senderAvatar ? (
-                  <Image
-                    source={{
-                      uri: resolveMediaUrl(senderAvatar)!,
-                    }}
-                    style={styles.senderAvatarImage}
-                  />
-                ) : (
-                  <Text style={styles.senderAvatarText}>
-                    {getInitial(senderUsername)}
-                  </Text>
-                )}
-              </View>
+              <Avatar
+                uri={senderAvatar}
+                name={senderUsername}
+                size={32}
+                containerStyle={styles.senderAvatar}
+                imageStyle={styles.senderAvatarImage}
+                textStyle={styles.senderAvatarText}
+              />
             )}
 
             <TouchableOpacity
@@ -2794,7 +2784,7 @@ export default function GroupChatScreen() {
     adminInvitationStatus === "PENDING"
       ? "An invitation has been sent to the Zleenchat Admin."
       : adminInvitationStatus === "ACCEPTED"
-        ? "A Zleenchat Admin has joined this group."
+        ? "An Admin has joined this group."
         : "Invite the Zleenchat Admin into this group for moderation and support.";
 
   return (
@@ -2902,18 +2892,13 @@ export default function GroupChatScreen() {
                 });
               }}
             >
-              <View style={styles.headerAvatar}>
-                {groupAvatarUri ? (
-                  <Image
-                    source={{
-                      uri: groupAvatarUri,
-                    }}
-                    style={styles.headerAvatarImage}
-                  />
-                ) : (
-                  <Ionicons name="people-outline" size={25} color="#4F46E5" />
-                )}
-              </View>
+              <Avatar
+                uri={groupAvatarUri}
+                name={group?.name || "Group"}
+                size={48}
+                containerStyle={styles.headerAvatar}
+                imageStyle={styles.headerAvatarImage}
+              />
 
               <View style={styles.headerTextContainer}>
                 <Text style={styles.headerTitle} numberOfLines={1}>
@@ -2988,18 +2973,13 @@ export default function GroupChatScreen() {
           ListHeaderComponent={
             <View>
               <View style={styles.groupSetupCard}>
-                <View style={styles.groupAvatar}>
-                  {groupAvatarUri ? (
-                    <Image
-                      source={{
-                        uri: groupAvatarUri,
-                      }}
-                      style={styles.groupAvatarImage}
-                    />
-                  ) : (
-                    <Ionicons name="people-outline" size={48} color="#5B55E8" />
-                  )}
-                </View>
+                <Avatar
+                  uri={groupAvatarUri}
+                  name={group?.name || "Group"}
+                  size={108}
+                  containerStyle={styles.groupAvatar}
+                  imageStyle={styles.groupAvatarImage}
+                />
 
                 <Text style={styles.groupSetupTitle} numberOfLines={1}>
                   {group?.name || "Zleenchat Team"}

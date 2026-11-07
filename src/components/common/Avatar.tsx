@@ -68,10 +68,17 @@ export default function Avatar({
 
   const initial = name?.trim()?.charAt(0)?.toUpperCase() || "U";
 
-  const imageUri = uri
-    ? uri.startsWith("http")
-      ? uri
-      : `${API_BASE_URL}${uri}`
+  const suppliedUri = uri?.trim() || null;
+  const rawR2AvatarMatch = suppliedUri?.match(/^\/?avatars\/user-(\d+)\//);
+
+  const resolvedUri = rawR2AvatarMatch
+    ? `/profile/${rawR2AvatarMatch[1]}/avatar`
+    : suppliedUri;
+
+  const imageUri = resolvedUri
+    ? resolvedUri.startsWith("http")
+      ? resolvedUri
+      : `${API_BASE_URL}${resolvedUri.startsWith("/") ? "" : "/"}${resolvedUri}`
     : null;
 
   const showImage = Boolean(imageUri && tokenReady && token && !imageFailed);

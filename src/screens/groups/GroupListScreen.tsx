@@ -1,4 +1,3 @@
-import { API_BASE_URL } from "@/src/services/api/apiClient";
 import {
   View,
   Text,
@@ -8,12 +7,12 @@ import {
   ActivityIndicator,
   RefreshControl,
   TextInput,
-  Image,
   StatusBar,
 } from "react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import Avatar from "@/src/components/common/Avatar";
 
 import {
   getMyGroups,
@@ -606,10 +605,6 @@ export default function GroupListScreen() {
           </View>
         }
         renderItem={({ item }) => {
-          const avatarUri = item.group.avatarUrl
-            ? `${API_BASE_URL}${item.group.avatarUrl}`
-            : null;
-
           const isTyping = !!typingGroups[item.group.id];
           const isLeft = item.removedAt != null;
           const isSelected = selectedGroupIds.includes(item.group.id);
@@ -655,13 +650,13 @@ export default function GroupListScreen() {
                 </View>
               )}
 
-              {avatarUri ? (
-                <Image source={{ uri: avatarUri }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarFallback}>
-                  <Ionicons name="people" size={24} color="#2563EB" />
-                </View>
-              )}
+              <Avatar
+                uri={item.group.avatarUrl}
+                name={item.group.name}
+                size={52}
+                containerStyle={styles.avatar}
+                imageStyle={styles.avatar}
+              />
 
               <View style={styles.groupContent}>
                 <View style={styles.groupTopRow}>

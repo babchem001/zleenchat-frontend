@@ -23,7 +23,7 @@ import {
 import { useFocusEffect, useLocalSearchParams, router } from "expo-router";
 
 import * as ImagePicker from "expo-image-picker";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 
 import {
   getMyGroupMembers,
@@ -41,6 +41,7 @@ import { getGroupMessages } from "@/src/services/group/groupMessageService";
 import { Message } from "@/src/types/chat.types";
 import { decryptRemoteMedia } from "@/src/utils/mediaPipeline";
 import { decryptRemoteThumbnail } from "@/src/utils/thumbnailPipeline";
+import Avatar from "@/src/components/common/Avatar";
 
 import { useAuthStore } from "@/src/store/auth/authStorage";
 import { useSocket } from "@/hooks/useSocket";
@@ -973,14 +974,6 @@ export default function GroupInfoScreen() {
     });
   };
 
-  const getInitial = (username?: string) => {
-    if (!username) {
-      return "?";
-    }
-
-    return username.charAt(0).toUpperCase();
-  };
-
   const renderMember = ({ item }: { item: any }) => {
     const memberIsCreator =
       item.role === "CREATOR" &&
@@ -989,7 +982,7 @@ export default function GroupInfoScreen() {
     const username = item.user.profile?.username || "User";
     const avatarUrl =
       item.user.profile?.avatarUrl || item.user.profile?.avatar || null;
-    const avatarUri = getAbsoluteMediaUri(avatarUrl);
+
     return (
       <TouchableOpacity
         disabled={isLeft}
@@ -1004,18 +997,14 @@ export default function GroupInfoScreen() {
           setMemberModalVisible(true);
         }}
       >
-        <View style={styles.memberAvatar}>
-          {avatarUri ? (
-            <Image
-              source={{ uri: avatarUri }}
-              style={styles.memberAvatarImage}
-            />
-          ) : (
-            <Text style={styles.memberAvatarText}>
-              {getInitial(isMe ? "You" : username)}
-            </Text>
-          )}
-        </View>
+        <Avatar
+          uri={avatarUrl}
+          name={isMe ? "You" : username}
+          size={48}
+          containerStyle={styles.memberAvatar}
+          imageStyle={styles.memberAvatarImage}
+          textStyle={styles.memberAvatarText}
+        />
 
         <View style={styles.memberInfo}>
           <Text style={styles.memberName} numberOfLines={1}>
@@ -1180,22 +1169,14 @@ export default function GroupInfoScreen() {
                 }
               }}
             >
-              {group?.avatarUrl ? (
-                <Image
-                  source={{
-                    uri: `${API_BASE_URL}${group.avatarUrl}`,
-                  }}
-                  style={styles.avatar}
-                />
-              ) : (
-                <View style={styles.emptyAvatar}>
-                  <MaterialCommunityIcons
-                    name="account-group"
-                    size={72}
-                    color="#453B82"
-                  />
-                </View>
-              )}
+              <Avatar
+                uri={group?.avatarUrl}
+                name={group?.name || "Group"}
+                size={154}
+                containerStyle={styles.avatar}
+                imageStyle={styles.avatar}
+                fallbackStyle={styles.emptyAvatar}
+              />
             </TouchableOpacity>
 
             {isCreator && (
