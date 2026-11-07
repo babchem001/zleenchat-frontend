@@ -46,6 +46,7 @@ export default function OtherUserProfileScreen() {
   const [feedbackTitle, setFeedbackTitle] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [requestActionLoading, setRequestActionLoading] = useState(false);
+
   const showFeedback = (type: FeedbackType, title: string, message: string) => {
     setFeedbackType(type);
     setFeedbackTitle(title);
@@ -254,10 +255,62 @@ export default function OtherUserProfileScreen() {
     typeof profile?.user?.email === "string" &&
     profile.user.email.trim().length > 0;
 
-  if (loading) {
+  if (loading && !profile) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#2563EB" />
+      <View style={styles.container}>
+        <View style={styles.topBlob} />
+        <View style={styles.bottomBlob} />
+        <View style={styles.topGlow} />
+        <View style={styles.bottomGlow} />
+
+        <View style={styles.header}>
+          <TouchableOpacity activeOpacity={0.8} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={28} color="#0B1545" />
+          </TouchableOpacity>
+
+          <View style={styles.headerText}>
+            <Text style={styles.title}>Profile</Text>
+            <Text style={styles.description}>View user information</Text>
+          </View>
+        </View>
+
+        <View style={styles.profileCard}>
+          <View style={styles.avatarRing}>
+            <View
+              style={[styles.avatarPlaceholder, { backgroundColor: "#EEF2FF" }]}
+            />
+          </View>
+
+          <View
+            style={{
+              width: 150,
+              height: 16,
+              marginTop: 24,
+              borderRadius: 8,
+              backgroundColor: "#EEF2FF",
+            }}
+          />
+
+          <View
+            style={{
+              width: 110,
+              height: 12,
+              marginTop: 10,
+              borderRadius: 6,
+              backgroundColor: "#EEF2FF",
+            }}
+          />
+
+          <View
+            style={{
+              width: "100%",
+              height: 64,
+              marginTop: 24,
+              borderRadius: 14,
+              backgroundColor: "#EEF2FF",
+            }}
+          />
+        </View>
       </View>
     );
   }
@@ -578,16 +631,11 @@ const styles = StyleSheet.create({
   profileCard: {
     marginHorizontal: 22,
     marginTop: 18,
-
     backgroundColor: "#FFFFFF",
-
     borderRadius: 30,
-
     paddingHorizontal: 24,
     paddingVertical: 30,
-
     alignItems: "center",
-
     shadowColor: "#2563EB",
     shadowOpacity: 0.06,
     shadowRadius: 16,
@@ -595,7 +643,6 @@ const styles = StyleSheet.create({
       width: 0,
       height: 8,
     },
-
     elevation: 5,
   },
 
@@ -603,10 +650,8 @@ const styles = StyleSheet.create({
     width: 150,
     height: 150,
     borderRadius: 75,
-
     justifyContent: "center",
     alignItems: "center",
-
     backgroundColor: "#E9EEFF",
   },
 
@@ -620,9 +665,7 @@ const styles = StyleSheet.create({
     width: 136,
     height: 136,
     borderRadius: 68,
-
     backgroundColor: "#2563EB",
-
     justifyContent: "center",
     alignItems: "center",
   },
@@ -649,14 +692,10 @@ const styles = StyleSheet.create({
 
   emailContainer: {
     marginTop: 14,
-
     flexDirection: "row",
     alignItems: "center",
-
     backgroundColor: "#F8FAFF",
-
     borderRadius: 18,
-
     paddingHorizontal: 14,
     paddingVertical: 9,
   },
@@ -672,14 +711,10 @@ const styles = StyleSheet.create({
 
   memberBadge: {
     marginTop: 18,
-
     flexDirection: "row",
     alignItems: "center",
-
     backgroundColor: "#EEF4FF",
-
     borderRadius: 18,
-
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
@@ -695,13 +730,9 @@ const styles = StyleSheet.create({
 
   bioCard: {
     marginTop: 18,
-
     width: "100%",
-
     backgroundColor: "#F8FAFF",
-
     borderRadius: 20,
-
     padding: 18,
   },
 
@@ -729,47 +760,32 @@ const styles = StyleSheet.create({
 
   primaryButton: {
     marginTop: 30,
-
     width: "100%",
     height: 54,
-
     borderRadius: 27,
-
     backgroundColor: "#2563EB",
-
     justifyContent: "center",
     alignItems: "center",
-
     flexDirection: "row",
   },
 
   primarySmallButton: {
     flex: 1,
-
     height: 50,
-
     borderRadius: 25,
-
     backgroundColor: "#2563EB",
-
     justifyContent: "center",
     alignItems: "center",
-
     flexDirection: "row",
   },
 
   secondaryButton: {
     flex: 1,
-
     height: 50,
-
     borderRadius: 25,
-
     backgroundColor: "#EEF2F7",
-
     justifyContent: "center",
     alignItems: "center",
-
     marginRight: 12,
   },
 
@@ -795,14 +811,10 @@ const styles = StyleSheet.create({
 
   statusContainer: {
     marginTop: 18,
-
     flexDirection: "row",
     alignItems: "center",
-
     backgroundColor: "#F8FAFF",
-
     borderRadius: 18,
-
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
@@ -825,10 +837,8 @@ const styles = StyleSheet.create({
 
   unavailableContainer: {
     flex: 1,
-
     justifyContent: "center",
     alignItems: "center",
-
     paddingHorizontal: 36,
   },
 
@@ -836,21 +846,16 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-
     backgroundColor: "#EEF4FF",
-
     justifyContent: "center",
     alignItems: "center",
   },
 
   unavailableTitle: {
     marginTop: 26,
-
     fontSize: 28,
     fontWeight: "800",
-
     color: "#0B1545",
-
     textAlign: "center",
   },
 

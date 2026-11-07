@@ -12,7 +12,7 @@ import {
   Alert,
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import {
   getConversations,
@@ -69,6 +69,7 @@ export default function ChatListScreen() {
   const [myProfile, setMyProfile] = useState<Profile | null>(null);
   const [selectedGroupIds, setSelectedGroupIds] = useState<number[]>([]);
   const [deletingGroups, setDeletingGroups] = useState(false);
+  const hasLoadedChatsRef = useRef(false);
 
   const [activeTab, setActiveTab] = useState<
     "all" | "unread" | "groups" | "requests"
@@ -83,12 +84,15 @@ export default function ChatListScreen() {
 
   const fetchChats = useCallback(async () => {
     try {
-      setLoading(true);
+      if (!hasLoadedChatsRef.current) {
+        setLoading(true);
+      }
 
       const data = await getConversations();
       const nextChats = data || [];
 
       setChats(nextChats);
+      hasLoadedChatsRef.current = true;
 
       const receiverId = Number(currentUserId);
 
@@ -183,13 +187,13 @@ export default function ChatListScreen() {
     ]),
   );
 
- useEffect(() => {
-  if (!connected) {
-    return;
-  }
+  useEffect(() => {
+    if (!connected) {
+      return;
+    }
 
-  fetchChats();
-}, [connected, fetchChats]);
+    fetchChats();
+  }, [connected, fetchChats]);
 
   useEffect(() => {
     if (!connected) return;

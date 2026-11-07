@@ -318,12 +318,77 @@ export default function MySettingsScreen() {
     }
   };
 
-  if (loading) {
+  if (loading && !settings) {
     return (
-      <View style={[styles.container, styles.center]}>
+      <View style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-        <ActivityIndicator size="large" color="#2563EB" />
+        <View style={styles.topBlob} />
+        <View style={styles.bottomBlob} />
+        <View style={styles.topGlow} />
+        <View style={styles.bottomGlow} />
+
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            activeOpacity={0.85}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={22} color="#0B1545" />
+          </TouchableOpacity>
+
+          <View style={styles.headerText}>
+            <Text style={styles.headerTitle}>Privacy Settings</Text>
+            <Text style={styles.headerSubtitle}>
+              Control who can interact with you
+            </Text>
+          </View>
+        </View>
+
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.settingsContainer}
+          showsVerticalScrollIndicator={false}
+        >
+          {Array.from({ length: 5 }, (_, index) => (
+            <View key={index} style={styles.settingCard}>
+              <View style={styles.settingLeft}>
+                <View
+                  style={[styles.iconContainer, { backgroundColor: "#EEF2FF" }]}
+                />
+
+                <View style={styles.settingText}>
+                  <View
+                    style={{
+                      width: 150,
+                      height: 13,
+                      borderRadius: 7,
+                      backgroundColor: "#EEF2FF",
+                    }}
+                  />
+                  <View
+                    style={{
+                      width: 200,
+                      height: 10,
+                      marginTop: 8,
+                      borderRadius: 5,
+                      backgroundColor: "#EEF2FF",
+                    }}
+                  />
+                </View>
+              </View>
+
+              <View
+                style={{
+                  width: 44,
+                  height: 26,
+                  borderRadius: 13,
+                  backgroundColor: "#E2E8F0",
+                }}
+              />
+            </View>
+          ))}
+        </ScrollView>
       </View>
     );
   }
@@ -615,8 +680,8 @@ export default function MySettingsScreen() {
             <Text style={styles.warningModalTitle}>Delete Your Account?</Text>
 
             <Text style={styles.warningModalIntro}>
-              This will immediately disable your Zleenchat account and schedule it
-              for deletion.
+              This will immediately disable your Zleenchat account and schedule
+              it for deletion.
             </Text>
 
             <ScrollView
@@ -926,7 +991,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     justifyContent: "center",
     alignItems: "center",
-
     shadowColor: "#2563EB",
     shadowOpacity: 0.06,
     shadowRadius: 12,
@@ -934,7 +998,6 @@ const styles = StyleSheet.create({
       width: 0,
       height: 5,
     },
-
     elevation: 4,
   },
 
@@ -969,7 +1032,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-
     shadowColor: "#2563EB",
     shadowOpacity: 0.05,
     shadowRadius: 10,
@@ -977,7 +1039,6 @@ const styles = StyleSheet.create({
       width: 0,
       height: 5,
     },
-
     elevation: 3,
   },
 
@@ -1025,7 +1086,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 4,
     marginBottom: 14,
-
     shadowColor: "#7257E8",
     shadowOpacity: 0.22,
     shadowRadius: 12,
@@ -1033,7 +1093,6 @@ const styles = StyleSheet.create({
       width: 0,
       height: 6,
     },
-
     elevation: 5,
   },
 
@@ -1113,7 +1172,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderRadius: 26,
     padding: 24,
-
     shadowColor: "#000000",
     shadowOpacity: 0.16,
     shadowRadius: 24,
@@ -1121,7 +1179,6 @@ const styles = StyleSheet.create({
       width: 0,
       height: 10,
     },
-
     elevation: 10,
   },
 
@@ -1281,7 +1338,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderRadius: 26,
     padding: 24,
-
     shadowColor: "#000000",
     shadowOpacity: 0.16,
     shadowRadius: 24,
@@ -1289,7 +1345,6 @@ const styles = StyleSheet.create({
       width: 0,
       height: 10,
     },
-
     elevation: 10,
   },
 
@@ -1393,7 +1448,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderRadius: 26,
     padding: 24,
-
     shadowColor: "#000000",
     shadowOpacity: 0.16,
     shadowRadius: 24,
@@ -1401,7 +1455,6 @@ const styles = StyleSheet.create({
       width: 0,
       height: 10,
     },
-
     elevation: 10,
   },
 

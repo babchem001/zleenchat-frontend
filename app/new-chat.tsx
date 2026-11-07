@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Image,
   StyleSheet,
@@ -147,22 +146,6 @@ export default function NewChatScreen() {
     );
   };
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#2563EB" />
-
-        <AppFeedbackModal
-          visible={feedback.visible}
-          type={feedback.type}
-          title={feedback.title}
-          message={feedback.message}
-          onClose={closeFeedback}
-        />
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       {/* Decorative Background */}
@@ -223,19 +206,21 @@ export default function NewChatScreen() {
           },
         ]}
         ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons
-              name="chatbubble-ellipses-outline"
-              size={72}
-              color="#2563EB"
-            />
+          loading ? null : (
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="chatbubble-ellipses-outline"
+                size={72}
+                color="#2563EB"
+              />
 
-            <Text style={styles.emptyTitle}>No contacts yet</Text>
+              <Text style={styles.emptyTitle}>No contacts yet</Text>
 
-            <Text style={styles.emptySubtitle}>
-              Accept a chat request to start messaging.
-            </Text>
-          </View>
+              <Text style={styles.emptySubtitle}>
+                Accept a chat request to start messaging.
+              </Text>
+            </View>
+          )
         }
       />
 
@@ -341,16 +326,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 22,
     marginTop: 26,
     marginBottom: 20,
-
     height: 58,
-
     borderRadius: 29,
-
     backgroundColor: "#F3F6FD",
-
     flexDirection: "row",
     alignItems: "center",
-
     paddingHorizontal: 16,
   },
 
@@ -371,16 +351,11 @@ const styles = StyleSheet.create({
   contactRow: {
     flexDirection: "row",
     alignItems: "center",
-
     backgroundColor: "#FFFFFF",
-
     borderRadius: 26,
-
     paddingHorizontal: 16,
     paddingVertical: 12,
-
     marginBottom: 8,
-
     shadowColor: "#2563EB",
     shadowOpacity: 0.05,
     shadowRadius: 14,
@@ -388,7 +363,6 @@ const styles = StyleSheet.create({
       width: 0,
       height: 7,
     },
-
     elevation: 4,
   },
 
@@ -402,9 +376,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 31,
-
     backgroundColor: "#E9EEFF",
-
     justifyContent: "center",
     alignItems: "center",
   },

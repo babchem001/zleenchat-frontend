@@ -251,30 +251,7 @@ export default function AddUserToGroupsScreen() {
     return `${API_BASE_URL}${avatarUrl}`;
   };
 
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#2563EB" />
-
-          <Text style={styles.loadingText}>Loading available groups...</Text>
-        </View>
-
-        <AppFeedbackModal
-          visible={feedback.visible}
-          type={feedback.type}
-          title={feedback.title}
-          message={feedback.message}
-          buttonText={feedback.buttonText}
-          onClose={closeFeedback}
-        />
-      </SafeAreaView>
-    );
-  }
-
-  if (error || !targetUser) {
+  if (!loading && (error || !targetUser)) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
@@ -317,7 +294,8 @@ export default function AddUserToGroupsScreen() {
     );
   }
 
-  const targetAvatarUri = getAvatarUri(targetUser.avatarUrl);
+  const targetAvatarUri = getAvatarUri(targetUser?.avatarUrl);
+  const targetUsername = targetUser?.username ?? "Loading user details";
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -345,7 +323,7 @@ export default function AddUserToGroupsScreen() {
           <Text style={styles.headerTitle}>Add to Groups</Text>
 
           <Text style={styles.headerSubtitle}>
-            Select groups for {targetUser.username}
+            Select groups for {targetUsername}
           </Text>
         </View>
       </View>
@@ -362,17 +340,19 @@ export default function AddUserToGroupsScreen() {
         ) : (
           <View style={styles.targetAvatarFallback}>
             <Text style={styles.targetAvatarText}>
-              {targetUser.username.charAt(0).toUpperCase()}
+              {targetUser?.username?.charAt(0)?.toUpperCase() ?? "U"}
             </Text>
           </View>
         )}
 
         <View style={styles.targetInfo}>
           <Text style={styles.targetName}>
-            {targetUser.firstName} {targetUser.lastName}
+            {targetUser?.firstName ?? ""} {targetUser?.lastName ?? ""}
           </Text>
 
-          <Text style={styles.targetUsername}>@{targetUser.username}</Text>
+          <Text style={styles.targetUsername}>
+            @{targetUser?.username ?? ""}
+          </Text>
         </View>
 
         <View style={styles.targetIcon}>
@@ -397,7 +377,7 @@ export default function AddUserToGroupsScreen() {
       </View>
 
       <Text style={styles.selectionSubtitle}>
-        Select the groups where you want to add {targetUser.username}.
+        Select the groups where you want to add {targetUsername}.
       </Text>
 
       {/* Groups */}
@@ -411,18 +391,20 @@ export default function AddUserToGroupsScreen() {
           groups.length === 0 && styles.emptyListContent,
         ]}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <View style={styles.emptyIcon}>
-              <Ionicons name="people-outline" size={42} color="#2563EB" />
+          loading ? null : (
+            <View style={styles.emptyContainer}>
+              <View style={styles.emptyIcon}>
+                <Ionicons name="people-outline" size={42} color="#2563EB" />
+              </View>
+
+              <Text style={styles.emptyTitle}>No available groups</Text>
+
+              <Text style={styles.emptySubtitle}>
+                You don&apos;t currently administer any groups where you can add
+                this user.
+              </Text>
             </View>
-
-            <Text style={styles.emptyTitle}>No available groups</Text>
-
-            <Text style={styles.emptySubtitle}>
-              You don&apos;t currently administer any groups where you can add
-              this user.
-            </Text>
-          </View>
+          )
         }
         renderItem={({ item }) => {
           const isSelected = selectedGroupIds.has(item.id);
@@ -458,7 +440,7 @@ export default function AddUserToGroupsScreen() {
 
                 <Text numberOfLines={1} style={styles.groupStatus}>
                   {item.isAlreadyMember
-                    ? `${targetUser.username} is already a member`
+                    ? `${targetUser?.username ?? "This user"} is already a member`
                     : isSelected
                       ? "Selected"
                       : "Available"}

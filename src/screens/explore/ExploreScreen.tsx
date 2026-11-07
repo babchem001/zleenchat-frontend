@@ -5,7 +5,6 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Image,
 } from "react-native";
 import { useEffect, useMemo, useState } from "react";
@@ -47,6 +46,7 @@ export default function ExploreScreen() {
   const fetchUsers = async (search: string) => {
     try {
       setLoading(true);
+      setUsers([]);
 
       const data = await searchUsers(search);
 
@@ -104,14 +104,6 @@ export default function ExploreScreen() {
       </TouchableOpacity>
     );
   };
-
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#2563EB" />
-      </View>
-    );
-  }
 
   return (
     <View style={styles.container}>
@@ -174,7 +166,7 @@ export default function ExploreScreen() {
           },
         ]}
         ListEmptyComponent={
-          hasSearch ? (
+          loading ? null : hasSearch ? (
             <View style={styles.emptyState}>
               <Ionicons name="search-outline" size={72} color="#2563EB" />
 
@@ -288,18 +280,12 @@ const styles = StyleSheet.create({
   searchContainer: {
     marginTop: 18,
     marginHorizontal: 22,
-
     height: 58,
-
     borderRadius: 29,
-
     backgroundColor: "#F3F6FD",
-
     flexDirection: "row",
     alignItems: "center",
-
     paddingHorizontal: 16,
-
     shadowColor: "#2563EB",
     shadowOpacity: 0.05,
     shadowRadius: 12,
@@ -307,7 +293,6 @@ const styles = StyleSheet.create({
       width: 0,
       height: 6,
     },
-
     elevation: 4,
   },
 
@@ -323,10 +308,8 @@ const styles = StyleSheet.create({
   sectionTitle: {
     marginTop: 18,
     marginHorizontal: 24,
-
     fontSize: 18,
     fontWeight: "700",
-
     color: "#0B1545",
   },
 
@@ -343,16 +326,11 @@ const styles = StyleSheet.create({
   userCard: {
     flexDirection: "row",
     alignItems: "center",
-
     backgroundColor: "#FFFFFF",
-
     borderRadius: 26,
-
     paddingHorizontal: 16,
     paddingVertical: 12,
-
     marginBottom: 8,
-
     shadowColor: "#2563EB",
     shadowOpacity: 0.05,
     shadowRadius: 14,
@@ -360,7 +338,6 @@ const styles = StyleSheet.create({
       width: 0,
       height: 7,
     },
-
     elevation: 4,
   },
 
@@ -374,9 +351,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 31,
-
     backgroundColor: "#E9EEFF",
-
     justifyContent: "center",
     alignItems: "center",
   },
