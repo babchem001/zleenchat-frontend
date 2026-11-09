@@ -18,6 +18,8 @@ import { runStartupCleanup } from "@/src/services/chat/tempCleanupService";
 import { startWorker } from "@/src/workers/workerManager";
 import { processPendingJobs } from "@/src/workers/mediaWorker";
 import SplashScreen from "@/components/splash/SplashScreen";
+import useAppUpdate from "@/hooks/useAppUpdate";
+import UpdateAvailableModal from "@/components/updates/UpdateAvailableModal";
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -29,6 +31,15 @@ export default function RootLayout() {
   const hasLoaded = useRef(false);
 
   const setOnlineStatus = useNetworkStore((state) => state.setOnlineStatus);
+
+  const {
+    update,
+    downloading,
+    downloadProgress,
+    downloadError,
+    dismissUpdate,
+    startUpdate,
+  } = useAppUpdate(isHydrated);
 
   useEffect(() => {
     if (hasLoaded.current) {
@@ -146,6 +157,16 @@ export default function RootLayout() {
             </Stack>
 
             <StatusBar style="auto" />
+
+            <UpdateAvailableModal
+              visible={Boolean(update)}
+              update={update}
+              downloading={downloading}
+              downloadProgress={downloadProgress}
+              downloadError={downloadError}
+              onLater={dismissUpdate}
+              onUpdate={startUpdate}
+            />
           </ThemeProvider>
         </BottomSheetModalProvider>
       </SafeAreaProvider>
