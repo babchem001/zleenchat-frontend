@@ -25,6 +25,7 @@
     "buffer": "^6.0.3",
     "country-state-city": "^3.2.1",
     "expo": "~54.0.37",
+    "expo-audio": "~1.1.1",
     "expo-av": "~16.0.8",
     "expo-clipboard": "~8.0.8",
     "expo-constants": "~18.0.14",

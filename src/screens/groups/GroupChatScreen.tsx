@@ -62,6 +62,7 @@ import { useUploadQueueStore } from "@/src/store/chat/uploadQueueStore";
 import GroupMessageMedia from "@/components/chat/GroupMessageMedia";
 import { getMediaUrl } from "@/src/utils/mediaReference";
 import Avatar from "@/src/components/common/Avatar";
+import VoiceNoteRecorder from "@/components/chat/VoiceNoteRecorder";
 
 const isSameCalendarDay = (dateA: string | Date, dateB: string | Date) => {
   const a = new Date(dateA);
@@ -387,6 +388,7 @@ export default function GroupChatScreen() {
   const [selectedAttachment, setSelectedAttachment] = useState<any | null>(
     null,
   );
+  const [isVoiceRecording, setIsVoiceRecording] = useState(false);
   const [members, setMembers] = useState<any[]>([]);
   const [group, setGroup] = useState<any>(null);
   const [invitingAdmin, setInvitingAdmin] = useState(false);
@@ -3256,7 +3258,9 @@ export default function GroupChatScreen() {
                 },
               ]}
             >
-              <AttachmentPicker onPress={openAttachmentSheet} />
+              {!isVoiceRecording && (
+                <AttachmentPicker onPress={openAttachmentSheet} />
+              )}
 
               <TextInput
                 value={editingGroupMessage ? draftMessage : text}
@@ -3267,6 +3271,7 @@ export default function GroupChatScreen() {
                     handleTyping(value);
                   }
                 }}
+                editable={!isVoiceRecording}
                 placeholder="Type a message..."
                 placeholderTextColor="#94A3B8"
                 style={styles.input}
@@ -3274,17 +3279,31 @@ export default function GroupChatScreen() {
                 textAlignVertical="center"
               />
 
-              <TouchableOpacity
-                style={styles.sendBtn}
-                activeOpacity={0.85}
-                onPress={
-                  editingGroupMessage
-                    ? handleSaveEditedMessage
-                    : handleSendGroupMessage
-                }
-              >
-                <Ionicons name="send" size={22} color="#FFFFFF" />
-              </TouchableOpacity>
+              {(!editingGroupMessage && !text.trim() && !selectedAttachment) ||
+              isVoiceRecording ? (
+                <VoiceNoteRecorder
+                  disabled={!canUseGroup}
+                  onRecordingChange={setIsVoiceRecording}
+                  onRecorded={(recording) =>
+                    setSelectedAttachment({
+                      ...recording,
+                      contentType: "AUDIO",
+                    })
+                  }
+                />
+              ) : (
+                <TouchableOpacity
+                  style={styles.sendBtn}
+                  activeOpacity={0.85}
+                  onPress={
+                    editingGroupMessage
+                      ? handleSaveEditedMessage
+                      : handleSendGroupMessage
+                  }
+                >
+                  <Ionicons name="send" size={22} color="#FFFFFF" />
+                </TouchableOpacity>
+              )}
             </View>
           </>
         )}

@@ -105,7 +105,10 @@ export const processMediaFile = async ({ clientId }: { clientId: string }) => {
         uploadStatus: "PROCESSING",
       });
 
-      const processed = await processAudio(message.localUri);
+      const processed = await processAudio(
+        message.localUri,
+        message.waveform ?? null,
+      );
 
       uploadStore.updateQueuedMessage(clientId, {
         duration: processed.duration,

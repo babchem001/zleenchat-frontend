@@ -74,6 +74,7 @@ import * as Clipboard from "expo-clipboard";
 import AppFeedbackModal, {
   FeedbackType,
 } from "@/src/components/AppFeedbackModal";
+import VoiceNoteRecorder from "@/components/chat/VoiceNoteRecorder";
 
 const isSameCalendarDay = (dateA: string | Date, dateB: string | Date) => {
   const a = new Date(dateA);
@@ -273,6 +274,7 @@ export default function ChatScreen() {
   const [selectedAttachment, setSelectedAttachment] = useState<any | null>(
     null,
   );
+  const [isVoiceRecording, setIsVoiceRecording] = useState(false);
 
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
@@ -810,7 +812,7 @@ export default function ChatScreen() {
 
   const getMetaAttribute = (tag: string, attribute: string) => {
     const match = tag.match(
-      new RegExp(`${attribute}\\s*=\\s*[\\\"']([^\\\"']+)[\\\"']`, "i"),
+      new RegExp(`${attribute}\\s*=\\s*[\\\\"']([^\\"']+)[\\\"']`, "i"),
     );
 
     return match?.[1] ? decodeHtmlEntities(match[1].trim()) : "";
@@ -3031,7 +3033,7 @@ export default function ChatScreen() {
             )}
 
             <View style={styles.inputContainer}>
-              {!editingMessage && (
+              {!isVoiceRecording && !editingMessage && (
                 <TouchableOpacity
                   activeOpacity={0.85}
                   disabled={messagingBlocked}
@@ -3047,46 +3049,59 @@ export default function ChatScreen() {
                 </TouchableOpacity>
               )}
 
-              <TextInput
-                editable={!messagingBlocked}
-                value={editingMessage ? editDraft : input}
-                onChangeText={editingMessage ? setEditDraft : handleTyping}
-                placeholder={
-                  messagingBlocked
-                    ? "Messaging unavailable"
-                    : editingMessage
-                      ? "Edit message..."
-                      : "Type a message..."
-                }
-                placeholderTextColor="#94A3B8"
-                style={styles.input}
-                multiline
-              />
-
-              <TouchableOpacity
-                activeOpacity={0.85}
-                disabled={
-                  messagingBlocked ||
-                  (editingMessage
-                    ? !editDraft.trim()
-                    : !input.trim() && !selectedAttachment)
-                }
-                onPress={
-                  editingMessage ? handleSaveEditedMessage : handleSendMessage
-                }
-                style={[
-                  styles.sendBtn,
-                  messagingBlocked && {
-                    opacity: 0.5,
-                  },
-                ]}
-              >
-                <Ionicons
-                  name={editingMessage ? "checkmark" : "send"}
-                  size={editingMessage ? 21 : 18}
-                  color="#FFFFFF"
+              {!isVoiceRecording && (
+                <TextInput
+                  editable={!messagingBlocked}
+                  value={editingMessage ? editDraft : input}
+                  onChangeText={editingMessage ? setEditDraft : handleTyping}
+                  placeholder={
+                    messagingBlocked
+                      ? "Messaging unavailable"
+                      : editingMessage
+                        ? "Edit message..."
+                        : "Type a message..."
+                  }
+                  placeholderTextColor="#94A3B8"
+                  style={styles.input}
+                  multiline
                 />
-              </TouchableOpacity>
+              )}
+
+              {!editingMessage &&
+              (isVoiceRecording || (!input.trim() && !selectedAttachment)) ? (
+                <VoiceNoteRecorder
+                  disabled={messagingBlocked}
+                  onRecordingChange={setIsVoiceRecording}
+                  onRecorded={setSelectedAttachment}
+                />
+              ) : !isVoiceRecording ? (
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  disabled={
+                    messagingBlocked ||
+                    (editingMessage
+                      ? !editDraft.trim()
+                      : !input.trim() && !selectedAttachment)
+                  }
+                  onPress={
+                    editingMessage
+                      ? handleSaveEditedMessage
+                      : handleSendMessage
+                  }
+                  style={[
+                    styles.sendBtn,
+                    messagingBlocked && {
+                      opacity: 0.5,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={editingMessage ? "checkmark" : "send"}
+                    size={editingMessage ? 21 : 18}
+                    color="#FFFFFF"
+                  />
+                </TouchableOpacity>
+              ) : null}
             </View>
           </View>
         )}

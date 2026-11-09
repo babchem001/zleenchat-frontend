@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
+import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 
 type Props = {
   attachment: any;
@@ -13,6 +14,27 @@ export default function AttachmentPreview({ attachment, onRemove }: Props) {
   const isVideo = attachment?.mimeType?.startsWith("video");
   const isAudio = attachment?.mimeType?.startsWith("audio");
   const isFile = attachment?.contentType === "FILE";
+
+  const audioPlayer = useAudioPlayer(
+    isAudio && attachment?.uri ? { uri: attachment.uri } : null,
+  );
+  const audioStatus = useAudioPlayerStatus(audioPlayer);
+
+  const toggleAudioPreview = () => {
+    if (audioStatus.playing) {
+      audioPlayer.pause();
+      return;
+    }
+
+    if (
+      audioStatus.duration > 0 &&
+      audioStatus.currentTime >= audioStatus.duration
+    ) {
+      audioPlayer.seekTo(0);
+    }
+
+    audioPlayer.play();
+  };
 
   return (
     <View style={styles.container}>
@@ -48,16 +70,30 @@ export default function AttachmentPreview({ attachment, onRemove }: Props) {
 
       {isAudio && (
         <View style={styles.fileContainer}>
-          <View style={[styles.fileIcon, styles.audioIconContainer]}>
-            <Ionicons name="musical-notes-outline" size={23} color="#DB2777" />
-          </View>
+          <TouchableOpacity
+            style={[styles.fileIcon, styles.audioIconContainer]}
+            onPress={toggleAudioPreview}
+            accessibilityRole="button"
+            accessibilityLabel={
+              audioStatus.playing ? "Pause audio preview" : "Play audio preview"
+            }
+          >
+            <Ionicons
+              name={audioStatus.playing ? "pause" : "play"}
+              size={23}
+              color="#DB2777"
+            />
+          </TouchableOpacity>
 
           <View style={styles.fileInfo}>
             <Text style={styles.fileName} numberOfLines={1}>
-              {attachment.name || "Audio file"}
+              {attachment.name || "Voice message"}
             </Text>
-
-            <Text style={styles.fileType}>Audio</Text>
+            <Text style={styles.fileType}>
+              {audioStatus.duration > 0
+                ? `${Math.floor(audioStatus.duration)} sec`
+                : "Audio"}
+            </Text>
           </View>
         </View>
       )}
