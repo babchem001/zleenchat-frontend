@@ -20,6 +20,12 @@ import { processPendingJobs } from "@/src/workers/mediaWorker";
 import SplashScreen from "@/components/splash/SplashScreen";
 import useAppUpdate from "@/hooks/useAppUpdate";
 import UpdateAvailableModal from "@/components/updates/UpdateAvailableModal";
+import { registerGlobals } from "@livekit/react-native";
+import { useCallCoordinator } from "@/hooks/useCallCoordinator";
+import IncomingCallModal from "@/components/calls/IncomingCallModal";
+import { useCallNotifications } from "@/hooks/useCallNotifications";
+
+registerGlobals();
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -138,6 +144,8 @@ export default function RootLayout() {
     }
   }, [setOnlineStatus]);
 
+  useCallCoordinator(isHydrated && isAuthenticated);
+  useCallNotifications(isHydrated && isAuthenticated);
   if (!isHydrated) {
     return <SplashScreen />;
   }
@@ -154,9 +162,17 @@ export default function RootLayout() {
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="admin" />
               <Stack.Screen name="modal" />
+              <Stack.Screen
+                name="calls/[callId]"
+                options={{
+                  presentation: "fullScreenModal",
+                  gestureEnabled: false,
+                }}
+              />
             </Stack>
 
             <StatusBar style="auto" />
+            <IncomingCallModal />
 
             <UpdateAvailableModal
               visible={Boolean(update)}

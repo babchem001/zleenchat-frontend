@@ -17,6 +17,7 @@ import {
   Platform,
   Image,
   Linking,
+  Alert,
 } from "react-native";
 import Swipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
@@ -63,6 +64,9 @@ import GroupMessageMedia from "@/components/chat/GroupMessageMedia";
 import { getMediaUrl } from "@/src/utils/mediaReference";
 import Avatar from "@/src/components/common/Avatar";
 import VoiceNoteRecorder from "@/components/chat/VoiceNoteRecorder";
+import { startGroupCall as startGroupCallRequest } from "@/src/services/calls/callService";
+import { useCallStore } from "@/src/store/call/callStore";
+import type { CallType } from "@/src/services/calls/callService";
 
 const isSameCalendarDay = (dateA: string | Date, dateB: string | Date) => {
   const a = new Date(dateA);
@@ -416,6 +420,7 @@ export default function GroupChatScreen() {
   const [feedbackTitle, setFeedbackTitle] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackButtonText, setFeedbackButtonText] = useState("OK");
+  const [isStartingGroupCall, setIsStartingGroupCall] = useState(false);
   const [feedbackSecondaryButtonText, setFeedbackSecondaryButtonText] =
     useState<string | undefined>(undefined);
   const [feedbackOnSecondaryPress, setFeedbackOnSecondaryPress] = useState<
@@ -492,6 +497,7 @@ export default function GroupChatScreen() {
   const setDraft = useDraftStore((state) => state.setDraft);
   const clearDraft = useDraftStore((state) => state.clearDraft);
 
+  const setActiveCall = useCallStore((state) => state.setActiveCall);
   const addQueuedMessage = useUploadQueueStore(
     (state) => state.addQueuedMessage,
   );
@@ -520,6 +526,63 @@ export default function GroupChatScreen() {
   );
 
   const isAdminConversation = adminMode === "true";
+
+  const startGroupCall = useCallback(
+    async (type: CallType) => {
+      const numericGroupId = Number(groupId);
+
+      if (
+        isStartingGroupCall ||
+        !canUseGroup ||
+        isAdminConversation ||
+        !Number.isInteger(numericGroupId) ||
+        numericGroupId <= 0
+      ) {
+        return;
+      }
+
+      setIsStartingGroupCall(true);
+
+      try {
+        const record = await startGroupCallRequest(numericGroupId, type);
+        const callId = record.callId;
+        const groupName = group?.name || "Group call";
+
+        setActiveCall({
+          ...record,
+          id: callId,
+          scope: "GROUP",
+          groupId: numericGroupId,
+          direction: "outgoing",
+          group: { id: numericGroupId, name: groupName },
+          peer: { id: 0, username: groupName },
+        });
+
+        router.push({
+          pathname: "/calls/[callId]" as any,
+          params: { callId: String(callId) },
+        });
+      } catch (error: any) {
+        Alert.alert(
+          "Could not start group call",
+          error?.response?.data?.message ||
+            error?.message ||
+            "Please try again.",
+        );
+      } finally {
+        setIsStartingGroupCall(false);
+      }
+    },
+    [
+      canUseGroup,
+      group?.name,
+      groupId,
+      isAdminConversation,
+      isStartingGroupCall,
+      setActiveCall,
+    ],
+  );
+
   const flatListRef = useRef<FlatList>(null);
   const attachmentSheetRef = useRef<BottomSheet>(null);
   const swipeRefs = useRef<
@@ -2923,9 +2986,38 @@ export default function GroupChatScreen() {
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.headerButton} activeOpacity={0.85}>
-              <Ionicons name="ellipsis-vertical" size={22} color="#111827" />
-            </TouchableOpacity>
+            <View style={styles.headerRightActions}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Start group voice call"
+                disabled={
+                  !canUseGroup || isAdminConversation || isStartingGroupCall
+                }
+                onPress={() => void startGroupCall("AUDIO")}
+                style={styles.groupCallButton}
+              >
+                <Ionicons name="call-outline" size={20} color="#2563EB" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Start group video call"
+                disabled={
+                  !canUseGroup || isAdminConversation || isStartingGroupCall
+                }
+                onPress={() => void startGroupCall("VIDEO")}
+                style={styles.groupCallButton}
+              >
+                <Ionicons name="videocam-outline" size={21} color="#2563EB" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.headerButton}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="ellipsis-vertical" size={22} color="#111827" />
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
@@ -4493,5 +4585,20 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textDecorationLine: "underline",
     marginRight: 3,
+  },
+
+  headerRightActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+
+  groupCallButton: {
+    width: 40,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F5F7FF",
   },
 });

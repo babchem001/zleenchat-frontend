@@ -75,6 +75,9 @@ import AppFeedbackModal, {
   FeedbackType,
 } from "@/src/components/AppFeedbackModal";
 import VoiceNoteRecorder from "@/components/chat/VoiceNoteRecorder";
+import { startDirectCall } from "@/src/services/calls/callService";
+import type { CallType } from "@/src/services/calls/callService";
+import { useCallStore } from "@/src/store/call/callStore";
 
 const isSameCalendarDay = (dateA: string | Date, dateB: string | Date) => {
   const a = new Date(dateA);
@@ -208,6 +211,7 @@ export default function ChatScreen() {
 
   const currentUser = useAuthStore((state) => state.user);
   const currentUserId = Number(currentUser?.sub);
+  const setActiveCall = useCallStore((state) => state.setActiveCall);
 
   const directDraftKey =
     Number.isInteger(currentUserId) &&
@@ -299,6 +303,8 @@ export default function ChatScreen() {
     theyBlockedMe: false,
   });
 
+  const [isStartingCall, setIsStartingCall] = useState(false);
+
   /*
    * ============================================================
    * APP FEEDBACK
@@ -326,6 +332,40 @@ export default function ChatScreen() {
     setFeedbackVisible(false);
   }, []);
 
+  const handleStartCall = useCallback(
+    async (type: CallType) => {
+      if (
+        !Number.isInteger(parsedUserId) ||
+        parsedUserId <= 0 ||
+        isStartingCall
+      ) {
+        return;
+      }
+
+      setIsStartingCall(true);
+
+      try {
+        const call = await startDirectCall(parsedUserId, type);
+        setActiveCall(call);
+
+        router.push({
+          pathname: "/calls/[callId]" as any,
+          params: { callId: String(call.callId) },
+        });
+      } catch (error: any) {
+        showFeedback(
+          "error",
+          "Call unavailable",
+          error?.response?.data?.message ||
+            error?.message ||
+            "Could not start the call.",
+        );
+      } finally {
+        setIsStartingCall(false);
+      }
+    },
+    [parsedUserId, isStartingCall, setActiveCall, showFeedback],
+  );
   const refreshBlockStatus = useCallback(async () => {
     if (!parsedUserId) {
       return;
@@ -2814,6 +2854,28 @@ export default function ChatScreen() {
                 </Text>
               </View>
             </TouchableOpacity>
+
+            <View style={styles.headerCallActions}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Start voice call"
+                disabled={isStartingCall}
+                onPress={() => void handleStartCall("AUDIO")}
+                style={styles.callActionButton}
+              >
+                <Ionicons name="call-outline" size={21} color="#2563EB" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Start video call"
+                disabled={isStartingCall}
+                onPress={() => void handleStartCall("VIDEO")}
+                style={styles.callActionButton}
+              >
+                <Ionicons name="videocam-outline" size={22} color="#2563EB" />
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
@@ -3084,9 +3146,7 @@ export default function ChatScreen() {
                       : !input.trim() && !selectedAttachment)
                   }
                   onPress={
-                    editingMessage
-                      ? handleSaveEditedMessage
-                      : handleSendMessage
+                    editingMessage ? handleSaveEditedMessage : handleSendMessage
                   }
                   style={[
                     styles.sendBtn,
@@ -3892,4 +3952,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#667085",
   },
+
+  headerCallActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginLeft: 4,
+  },
+
+  callActionButton: {
+  width: 42,
+  height: 42,
+  borderRadius: 14,
+  alignItems: "center",
+  justifyContent: "center",
+  backgroundColor: "#F5F7FF",
+  borderWidth: 1,
+  borderColor: "#E8E4FF",
+},
 });
