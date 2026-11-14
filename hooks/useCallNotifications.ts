@@ -100,7 +100,10 @@ export const useCallNotifications = (enabled: boolean) => {
         permission = await Notifications.requestPermissionsAsync();
       }
 
-      if (!permission.granted) return;
+      if (!permission.granted) {
+        console.warn("[Push] Notification permission denied");
+        return;
+      }
 
       const projectId =
         Constants.expoConfig?.extra?.eas?.projectId ??
@@ -114,9 +117,10 @@ export const useCallNotifications = (enabled: boolean) => {
         projectId,
       });
 
-      if (active) {
-        await registerDeviceToken(token.data, Platform.OS);
-      }
+      if (!active) return;
+      console.info("[Push] Expo token obtained");
+      await registerDeviceToken(token.data, Platform.OS);
+      console.info("[Push] Token registration succeeded");
     };
 
     void registerPushToken().catch((error) => {
