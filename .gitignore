@@ -41,3 +41,5 @@ app-example
 /ios
 /android
 .env
+
+OG_ArenaApp/google-services.json
