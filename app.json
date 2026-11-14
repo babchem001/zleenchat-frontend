@@ -2,7 +2,7 @@
   "expo": {
     "name": "Zleenchat",
     "slug": "zleenchat",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/zalvro_icon_optimized.png",
     "scheme": "ogarenaapp",
@@ -16,7 +16,7 @@
       }
     },
     "android": {
-      "versionCode": 3,
+      "versionCode": 4,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "INTERNET",
