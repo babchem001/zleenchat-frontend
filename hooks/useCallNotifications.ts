@@ -19,7 +19,7 @@ Notifications.setNotificationHandler({
     return {
       shouldShowBanner: !isCall,
       shouldShowList: !isCall,
-      shouldPlaySound: !isCall,
+      shouldPlaySound: true,
       shouldSetBadge: false,
     };
   },

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "397379034738",
+    "project_id": "og-arena-d42f0",
+    "storage_bucket": "og-arena-d42f0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:397379034738:android:b56b039913d71821652ceb",
+        "android_client_info": {
+          "package_name": "com.zleenchat.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBpfK7rBdyDGgu-JIY9axOMXTRArS-YCbw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
